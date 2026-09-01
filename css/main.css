@@ -181,6 +181,39 @@ body {
   flex: 0 0 auto;
 }
 
+/* --- 남은 시간 칩 (v0.15): 차콜 패널 + 모노 전광판, 30초 남으면 핑크 --- */
+.chip-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border: var(--sticker-border-w) solid var(--sticker-border);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 800;
+  letter-spacing: var(--track-wide);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chip-time-label {
+  font-size: 0.625rem; /* 10px */
+  font-weight: 700;
+  color: var(--panel-fg-muted);
+}
+
+.chip-time.warn {
+  color: var(--candy-pink);
+  box-shadow: var(--sticker-shadow), var(--glow-pink);
+}
+
+.chip-time.warn .chip-time-label {
+  color: var(--candy-pink);
+}
+
 /* ============================================================
    모드 토글 (데모/GPS) — 시안: 흰/차콜 서피스 칩 + 차콜 테두리
    활성 = 차콜 필 + 라임 텍스트
@@ -383,24 +416,91 @@ body {
   color: var(--danger-color);
 }
 
+/* 승리 시 타이틀은 라임 */
+.overlay-card h2.win {
+  color: var(--candy-lime);
+}
+
 #death-reason {
   margin: 0 0 var(--space-2);
   color: var(--panel-fg-muted);
   font-size: var(--text-sm);
+  min-height: 1.2em;
 }
 
-.death-score {
-  margin: 0 0 var(--space-6);
-  font-size: var(--text-base);
-  color: var(--panel-fg);
-  font-variant-numeric: tabular-nums;
+/* --- 정복 카드 (v0.15) --- */
+.result-card {
+  width: min(340px, 92%);
+  padding: var(--space-6) var(--space-4) var(--space-4);
 }
 
-.death-score b {
-  font-family: var(--font-mono);
+.card-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: var(--surface-border-w) solid var(--panel-border);
+  background: var(--panel-bg-deep);
+  margin: var(--space-2) 0;
+}
+
+.card-map-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--panel-fg-muted);
+  margin: 0 0 var(--space-3);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.card-map-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.result-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.result-actions .btn-primary {
+  flex: 1.4;
+  width: auto;
+  padding: 12px 10px;
+  font-size: var(--text-sm);
+}
+
+/* 보조 버튼: 서피스 스티커 (다시 시작) */
+.btn-secondary {
+  flex: 1;
+  background: var(--surface-bg);
+  color: var(--surface-fg);
+  border: var(--surface-border-w) solid var(--surface-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: var(--candy-lime);
+  padding: 12px 10px;
+  cursor: pointer;
+  box-shadow: var(--sticker-shadow);
+  transition: transform 0.12s ease;
+}
+
+.btn-secondary:active {
+  transform: scale(0.96);
+}
+
+.btn-secondary:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
 }
 
 /* --- 다시 시작: 네온 라임 스티커 버튼 --- */
@@ -439,7 +539,8 @@ body {
 
   .mode-option,
   .theme-toggle-option,
-  .btn-primary {
+  .btn-primary,
+  .btn-secondary {
     transition: none;
   }
 }

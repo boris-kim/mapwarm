@@ -13,8 +13,17 @@
         new MW.Bot(MW.ID.BOT2, this.board),
       ];
 
-      this.state = 'playing'; // 'playing' | 'dead'
+      this.state = 'playing'; // 'playing' | 'dying' | 'ended'
       this.mode = 'demo';     // 'demo' | 'gps'
+
+      // v0.15 라운드 & 정복 카드
+      this.round = new MW.Round(C.ROUND_MS_DEMO, C.WIN_PCT);
+      this.card = new MW.ConquestCard(this);
+      this.result = null;   // 판 종료 스냅샷 (카드 렌더용)
+      this.cuts = 0;        // 이번 판에 끊은 꼬리 수
+      this.cutKills = {};   // 내가 꼬리를 끊어 죽인 봇: id → 횟수 (카드에 넘어진 아바타)
+      this.tickCount = 0;   // 봇 페이스 계산용
+      this.deathReason = '';
 
       this.best = 0;
       try {
@@ -25,11 +34,16 @@
       this.$occ = document.getElementById('occupancy');
       this.$best = document.getElementById('best');
       this.$overlay = document.getElementById('overlay');
+      this.$resultTitle = document.getElementById('result-title');
       this.$deathReason = document.getElementById('death-reason');
-      this.$deathOcc = document.getElementById('death-occupancy');
       this.$badge = document.getElementById('gps-badge');
       this.$toast = document.getElementById('toast');
+      this.$timeChip = document.getElementById('chip-time');
+      this.$time = document.getElementById('round-time');
+      this.$cardCanvas = document.getElementById('card-canvas');
       this.toastTimer = null;
+      this._timeTxt = '';
+      this._timeWarn = false;
 
       // 사망 연출 타이머
       this.deathAt = 0;
@@ -52,14 +66,43 @@
         btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
       });
 
-      // 다시 시작
+      // 다시 시작 / 자랑하기
       document.getElementById('restart-btn').addEventListener('click', () => this.reset());
+      document.getElementById('share-btn').addEventListener('click', () => this.shareCard());
+
+      // "지도 배경 포함" 토글 (기본 꺼짐 — 프라이버시, localStorage에 기억)
+      this.cardMapOn = false;
+      try {
+        this.cardMapOn = localStorage.getItem('mapwarm-card-map') === '1';
+      } catch (e) { /* 저장 불가 환경 무시 */ }
+      const $mapToggle = document.getElementById('card-map-toggle');
+      $mapToggle.checked = this.cardMapOn;
+      $mapToggle.addEventListener('change', () => {
+        this.cardMapOn = $mapToggle.checked;
+        try {
+          localStorage.setItem('mapwarm-card-map', this.cardMapOn ? '1' : '0');
+        } catch (e) { /* noop */ }
+        if (this.result) this.renderCard(); // 결과 화면에서 즉시 다시 그림
+      });
 
       this.$best.textContent = this.best.toFixed(1) + '%';
 
       // 점유율 칩 pop 타이머 & 점령 델타 추적
       this.chipTimer = null;
       this.playerCells = 0;
+
+      // 결과 화면이 떠 있는 동안 카드를 최신으로 유지:
+      // (1) 타일이 늦게 로드되면 재렌더 (150ms 코얼레싱 — 타일 burst에 한 번만)
+      this._cardRerenderTimer = null;
+      this.tileMap.onLoad = () => {
+        if (this.state !== 'ended' || !this.result || !this.cardMapOn) return;
+        clearTimeout(this._cardRerenderTimer);
+        this._cardRerenderTimer = setTimeout(() => this.renderCard(), 150);
+      };
+      // (2) 테마 전환 시 카드도 새 토큰으로 재렌더
+      document.addEventListener('mw:themechange', () => {
+        if (this.state === 'ended' && this.result) this.renderCard();
+      });
 
       // 첫 진입: 잠시 후에도 타일이 하나도 없으면 1회 안내
       setTimeout(() => {
@@ -90,10 +133,20 @@
 
       clearTimeout(this.deathTimer);
       this.state = 'playing';
+      this.result = null;
+      this.cuts = 0;
+      this.cutKills = {};
+      this.tickCount = 0;
+      this.round.reset(this.limitForMode());
       this.$overlay.classList.add('hidden');
       this.renderer.cam.x = mid + 0.5;
       this.renderer.cam.y = mid + 0.5;
       this.updateOccupancy();
+      this.updateTimeChip();
+    }
+
+    limitForMode() {
+      return this.mode === 'gps' ? C.ROUND_MS_GPS : C.ROUND_MS_DEMO;
     }
 
     // 봇 스폰 위치: 빈 3×3 이고 플레이어와 적당히 떨어진 곳
@@ -124,6 +177,9 @@
     tick() {
       if (this.state !== 'playing') return;
 
+      this.round.tick();
+      this.tickCount++;
+
       // 1) 플레이어 이동
       let dir = this.mode === 'gps' ? this.gps.getDir(this.player) : this.input.getDir();
 
@@ -150,8 +206,19 @@
       if (this.state !== 'playing') return;
 
       // 2) 봇 이동 (같은 규칙)
+      // GPS 모드에선 사람 걸음 페이스(1칸당 ~3.5초)로만 움직인다. 모드 전환 즉시 반영.
+      const botEvery =
+        this.mode === 'gps' ? Math.max(1, Math.round(C.BOT_GPS_STEP_MS / C.TICK_MS)) : 1;
       for (let i = 0; i < this.bots.length; i++) {
-        this.bots[i].tickAI(this);
+        const b = this.bots[i];
+        if (!b.alive || this.tickCount % botEvery === 0) {
+          b.tickAI(this); // 리스폰 카운트다운은 항상 정상 속도
+        } else {
+          b.pc = b.c; // 쉬는 틱: 보간 잔상(제자리 왕복) 방지
+          b.pr = b.r;
+          // 대기(wait)는 실시간(틱) 기준 — GPS 페이스에서도 봇이 수 초 안에 출발한다
+          if (b.wait > 0) b.wait--;
+        }
         if (this.state !== 'playing') return;
       }
 
@@ -169,12 +236,27 @@
               this.killPlayer('봇이 내 꼬리를 밟았어요.');
               return;
             }
+            if (ea === this.player) {
+              this.cuts++; // 내가 직접 끊은 꼬리만 카운트
+              this.cutKills[eb.id] = (this.cutKills[eb.id] || 0) + 1; // 카드용 킬 기록
+            }
             this.killBot(eb);
           }
         }
       }
 
       this.updateOccupancy();
+      this.updateTimeChip();
+
+      // 4) 라운드 판정: 40% 즉시 승리 > 시간 종료(점유율 순위)
+      const verdict = this.round.check(this.occupancyPct());
+      if (verdict === 'win') {
+        this.endRound('win', '점유율 ' + C.WIN_PCT + '% 달성 — 즉시 승리!');
+      } else if (verdict === 'timeup') {
+        const botCells = this.bots.map((b) => this.board.count(b.id));
+        const won = MW.Round.rankWin(this.playerCells, botCells);
+        this.endRound(won ? 'win' : 'lose', won ? '시간 종료 — 점유율 1위!' : '시간 종료 — 점유율 순위에서 밀렸어요.');
+      }
     }
 
     // 점령 직후: 영토를 전부 빼앗긴(둘러싸인) 상대는 사망
@@ -216,23 +298,64 @@
       bot.spawn(p.c, p.r);
     }
 
-    // 사망: 즉시 오버레이를 띄우지 않고 짧은 연출(머리 깜빡임 + 꼬리 소멸) 후 표시
+    // 사망 = 그 판 패배: 짧은 연출(머리 깜빡임 + 꼬리 소멸) 후 결과 카드
     killPlayer(reason) {
       if (this.state !== 'playing') return;
-      const pct = this.occupancyPct(); // 영토가 지워지기 전에 기록
       this.state = 'dying'; // 틱은 멈추고 렌더러가 연출을 그린다
       this.deathAt = performance.now();
-      this.$deathReason.textContent = reason;
-      this.$deathOcc.textContent = pct.toFixed(1) + '%';
+      this.deathReason = reason;
       clearTimeout(this.deathTimer);
       this.deathTimer = setTimeout(() => this.finishDeath(), C.DEATH_FX_MS);
     }
 
     finishDeath() {
+      this.buildResult('death', this.deathReason); // 영토가 지워지기 전에 스냅샷
       this.player.die();
-      this.state = 'dead';
-      this.$overlay.classList.remove('hidden');
+      this.state = 'ended';
       this.updateOccupancy();
+      this.showResult();
+    }
+
+    // ---------- 판 종료 & 정복 카드 ----------
+    endRound(outcome, reason) {
+      if (this.state !== 'playing') return;
+      this.buildResult(outcome, reason);
+      this.state = 'ended';
+      this.showResult();
+    }
+
+    // 카드 렌더용 스냅샷 — 보드가 이후 바뀌어도(사망 등) 카드는 최종 순간을 그린다
+    buildResult(outcome, reason) {
+      this.result = {
+        outcome, // 'win' | 'lose' | 'death'
+        reason,
+        pct: this.occupancyPct(),
+        elapsedMs: this.round.elapsedMs(),
+        cuts: this.cuts,
+        kills: Object.assign({}, this.cutKills), // id → 횟수 (넘어진 봇 아바타)
+        owner: this.board.owner.slice(),
+      };
+    }
+
+    showResult() {
+      const r = this.result;
+      this.$resultTitle.textContent =
+        r.outcome === 'win' ? '승리!' : r.outcome === 'death' ? '사망!' : '패배';
+      this.$resultTitle.classList.toggle('win', r.outcome === 'win');
+      this.$deathReason.textContent = r.reason || '';
+      this.renderCard();
+      this.$overlay.classList.remove('hidden');
+    }
+
+    renderCard() {
+      if (!this.result) return;
+      this.card.render(this.$cardCanvas, this.result, this.cardMapOn);
+    }
+
+    shareCard() {
+      if (!this.result) return;
+      this.renderCard(); // 늦게 로드된 타일까지 반영해 새로 굽는다
+      this.card.share(this.$cardCanvas, this.result);
     }
 
     // ---------- HUD ----------
@@ -253,6 +376,21 @@
       }
     }
 
+    // 남은 시간 전광판 (mm:ss) — 30초 이하면 핑크 경고
+    updateTimeChip() {
+      const rem = this.round.remainingMs();
+      const txt = MW.Round.fmt(rem);
+      if (txt !== this._timeTxt) {
+        this._timeTxt = txt;
+        this.$time.textContent = txt;
+      }
+      const warn = rem <= C.TIME_WARN_MS;
+      if (warn !== this._timeWarn) {
+        this._timeWarn = warn;
+        this.$timeChip.classList.toggle('warn', warn);
+      }
+    }
+
     // ---------- 모드 전환 ----------
     setMode(mode) {
       if (mode === this.mode) return;
@@ -268,6 +406,9 @@
         this.$badge.classList.add('hidden');
         this.resetGeoToDemo(); // 지도 기준점을 서울시청으로 복귀
       }
+      // 제한시간·봇 페이스 즉시 반영 (경과 시간은 유지)
+      this.round.setLimit(this.limitForMode());
+      this.updateTimeChip();
       document.querySelectorAll('.mode-option').forEach((btn) => {
         const on = btn.dataset.mode === this.mode;
         btn.classList.toggle('active', on);

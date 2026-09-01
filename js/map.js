@@ -65,6 +65,7 @@
       this.maxInflight = 8; // 동시 요청 제한 (OSM 정책 배려)
       this.zoom = 18;
       this.geo = null;
+      this.onLoad = null; // 타일 1장 로드 완료 시 알림 (결과 카드 재렌더 등)
     }
 
     setGeo(geo) {
@@ -146,6 +147,7 @@
           job.t.status = 'ok';
           this.inflight--;
           this.pump();
+          if (this.onLoad) this.onLoad();
         };
         img.onerror = () => {
           job.t.status = 'error'; // 이 타일 영역은 격자 배경으로 폴백

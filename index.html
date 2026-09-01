@@ -21,16 +21,25 @@
 
     <div id="toast" class="toast hidden" role="status"></div>
 
+    <!-- 판 종료(승리/시간종료/사망) 결과 = 동네 정복 카드 -->
     <div id="overlay" class="overlay hidden">
-      <div class="overlay-card">
+      <div class="overlay-card result-card">
         <span class="rivet rivet-tl" aria-hidden="true"></span>
         <span class="rivet rivet-tr" aria-hidden="true"></span>
         <span class="rivet rivet-bl" aria-hidden="true"></span>
         <span class="rivet rivet-br" aria-hidden="true"></span>
-        <h2 id="death-title">사망!</h2>
+        <h2 id="result-title">사망!</h2>
         <p id="death-reason"></p>
-        <p class="death-score">이번 판 점유율 <b id="death-occupancy">0%</b></p>
-        <button type="button" id="restart-btn" class="btn-primary">다시 시작</button>
+        <canvas id="card-canvas" class="card-canvas" width="1080" height="1350"
+                aria-label="동네 정복 카드"></canvas>
+        <label class="card-map-toggle">
+          <input type="checkbox" id="card-map-toggle">
+          지도 배경 포함
+        </label>
+        <div class="result-actions">
+          <button type="button" id="share-btn" class="btn-primary">자랑하기</button>
+          <button type="button" id="restart-btn" class="btn-secondary">다시 시작</button>
+        </div>
       </div>
     </div>
   </main>
@@ -50,6 +59,10 @@
           <path d="M12 2.2l2.9 6.1 6.7.8-4.9 4.6 1.3 6.6L12 17.1l-6 3.2 1.3-6.6L2.4 9.1l6.7-.8z"/>
         </svg>
         BEST <span id="best">0.0%</span>
+      </div>
+      <div class="chip chip-time" id="chip-time" role="timer" aria-label="남은 시간">
+        <span class="chip-time-label">TIME</span>
+        <span id="round-time">3:00</span>
       </div>
     </div>
     <div class="hud-controls">
@@ -81,12 +94,14 @@
 
   <script src="js/config.js"></script>
   <script src="js/theme.js"></script>
+  <script src="js/round.js"></script>
   <script src="js/grid.js"></script>
   <script src="js/entities.js"></script>
   <script src="js/input.js"></script>
   <script src="js/gps.js"></script>
   <script src="js/map.js"></script>
   <script src="js/render.js"></script>
+  <script src="js/card.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>
