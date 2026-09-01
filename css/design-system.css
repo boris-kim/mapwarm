@@ -1,0 +1,336 @@
+/* ============================================================
+   MapWarm Design System — 디자인 토큰 & 테마 (ux-architect 표준)
+   아트 디렉션: Paper 시안 컨펌 완료 (GAME_DESIGN §6.5)
+   라이트 = 시안 B "캔디 스티커 팝" / 다크 = 시안 C "네온 나이트 스티커"
+   모든 색상은 여기서 CSS 변수(OKLCH)로만 정의한다. 하드코딩 금지.
+   OKLCH 값은 확정 hex에서 정밀 변환:
+   라이트 지면 #EAEBE7 · 패널 #2B2B2E · 라임 #B7E819 · 잉크 #1E2005
+   핑크 #FF3E9A · 오렌지 #FF8A00
+   다크 지면 #121214 · 칩 #1C1D21 · 보조테두리 #3A3B42 · 라임 #C8F31D
+   본문 #F2F2F4 · 보조 #7C7D84
+
+   ⚠ JS(render.js)가 getComputedStyle로 읽는 토큰 — 이름 변경 금지:
+   --canvas-outside --canvas-bg --canvas-grid --canvas-bound --map-tint
+   --p1-territory --p1-trail --p1-head
+   --bot1-territory --bot1-trail --bot1-head
+   --bot2-territory --bot2-trail --bot2-head
+   --joystick-bg
+   ============================================================ */
+
+:root {
+  /* ---------- 캔디 팔레트 (라이트 = 시안 B) ---------- */
+  --candy-lime: oklch(0.865 0.21 124);    /* #B7E819 히어로: 플레이어 + UI 포인트 */
+  --candy-pink: oklch(0.678 0.237 357);   /* #FF3E9A 봇1 */
+  --candy-orange: oklch(0.747 0.18 57);   /* #FF8A00 봇2 */
+  --candy-sky: oklch(0.74 0.12 235);      /* 보조: 포커스 링 */
+
+  /* ---------- 지면 & 텍스트 (라이트: 웜 그레이시 오프화이트) ---------- */
+  --bg-primary: oklch(0.938 0.005 118);   /* #EAEBE7 */
+  --bg-secondary: oklch(1 0 0);           /* 흰 서피스 */
+  --text-primary: oklch(0.29 0.005 286);  /* #2B2B2E */
+  --text-secondary: oklch(0.55 0.008 286);
+  --border-color: oklch(0.86 0.006 118);
+
+  /* ---------- 차콜 하드웨어 패널 (점유율 칩·사망 카드) ---------- */
+  --panel-bg: oklch(0.29 0.005 286);      /* #2B2B2E */
+  --panel-bg-deep: oklch(0.23 0.005 286);
+  --panel-fg: oklch(0.962 0.003 286);     /* #F2F2F4 */
+  --panel-fg-muted: oklch(0.591 0.011 280); /* #7C7D84 */
+  --panel-border: oklch(0.38 0.006 286);
+  --rivet-color: oklch(0.48 0.008 286);
+
+  /* ---------- 흰 서피스 칩 (최고기록·모드/테마 토글·토스트) ---------- */
+  --surface-bg: oklch(1 0 0);
+  --surface-fg: oklch(0.29 0.005 286);    /* #2B2B2E */
+  --surface-fg-muted: oklch(0.55 0.008 286);
+  --surface-border: oklch(0.29 0.005 286); /* 차콜 테두리 */
+  --surface-border-w: 2px;
+
+  /* ---------- 활성 토글 필 (차콜 필 + 라임 텍스트) ---------- */
+  --toggle-active-bg: oklch(0.29 0.005 286);
+  --toggle-active-fg: oklch(0.865 0.21 124);
+
+  /* ---------- 스티커 시스템 ---------- */
+  --sticker-border: oklch(1 0 0);         /* 두꺼운 흰 스티커 테두리 */
+  --sticker-border-w: 2.5px;
+  --sticker-white: oklch(1 0 0);          /* 캔버스 스티커 외곽선/링 (render.js가 읽음) */
+  --avatar-face: oklch(0.29 0.005 286);   /* 아바타 얼굴 차콜 (render.js가 읽음) */
+  --sticker-shadow: 0 3px 12px oklch(0.29 0.005 286 / 0.22),
+                    0 1px 3px oklch(0.29 0.005 286 / 0.16);
+  --glow-hero: 0 0 14px oklch(0.865 0.21 124 / 0.35);
+  --glow-pink: 0 0 14px oklch(0.678 0.237 357 / 0.35);
+  --glow-orange: 0 0 14px oklch(0.747 0.18 57 / 0.38);
+
+  /* ---------- 전광판(LED) 숫자 필 ---------- */
+  --led-fill-bg: oklch(0.865 0.21 124);   /* #B7E819 */
+  --led-fill-fg: oklch(0.234 0.044 113);  /* #1E2005 잉크 */
+
+  /* ---------- 브랜드 / 상태 ---------- */
+  --primary-color: oklch(0.865 0.21 124); /* = 네온 라임 */
+  --on-primary: oklch(0.234 0.044 113);   /* 라임 위 텍스트 = #1E2005 잉크 */
+  --danger-color: oklch(0.678 0.237 357); /* 위험 = 핫핑크 */
+  --focus-ring: oklch(0.6 0.14 235);      /* 스카이블루 포커스 링 */
+
+  /* ---------- 오버레이 ---------- */
+  --overlay-bg: oklch(0.18 0.005 286 / 0.55);
+
+  /* --- Canvas (게임판) 토큰 — JS가 getComputedStyle로 읽는다 --- */
+  --canvas-outside: oklch(0.905 0.007 116);          /* #DFE0DB 게임판 바깥 */
+  --canvas-bg: oklch(0.938 0.005 118);               /* #EAEBE7 게임판 배경 */
+  --canvas-grid: oklch(0.29 0.005 286 / 0.07);
+  --canvas-bound: oklch(0.55 0.008 286);             /* 게임판 경계선 */
+  --map-tint: oklch(0.938 0.005 118 / 0.62);         /* 채도 강하게 뺀 밝은 워시 — 지도는 무대 */
+
+  /* --- 엔티티: 플레이어(라임) / 봇1(핫핑크) / 봇2(오렌지) --- */
+  --p1-territory: oklch(0.865 0.21 124 / 0.45);
+  --p1-trail: oklch(0.865 0.21 124 / 0.8);
+  --p1-head: oklch(0.865 0.21 124);                  /* #B7E819 */
+  --p1-frame: oklch(0.865 0.21 124);                 /* 아바타 스티커 프레임 */
+
+  --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+  --bot1-trail: oklch(0.678 0.237 357 / 0.72);
+  --bot1-head: oklch(0.678 0.237 357);               /* #FF3E9A */
+  --bot1-frame: oklch(0.678 0.237 357);
+
+  --bot2-territory: oklch(0.747 0.18 57 / 0.4);
+  --bot2-trail: oklch(0.747 0.18 57 / 0.74);
+  --bot2-head: oklch(0.747 0.18 57);                 /* #FF8A00 */
+  --bot2-frame: oklch(0.747 0.18 57);
+
+  /* 점령 순간 팝 (새 도트 스케일-인 플래시) */
+  --pop-color: oklch(0.92 0.21 123);
+
+  /* 조이스틱: 라이트 = 흰 반투명 링 + 차콜 스틱 */
+  --joystick-bg: oklch(1 0 0 / 0.42);
+  --joystick-stick: oklch(0.29 0.005 286);
+  --joystick-stick-shadow: 0 3px 12px oklch(0.29 0.005 286 / 0.22),
+                           0 1px 3px oklch(0.29 0.005 286 / 0.16);
+
+  /* --- Typography --- */
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+    "Cascadia Mono", Consolas, monospace;
+  --track-wide: 0.08em; /* 스텐실 각인 느낌 자간 */
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+
+  /* --- Spacing System (4px grid) --- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* --- Radius --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-full: 999px;
+}
+
+/* --- Dark Theme (명시 선택) = 시안 C "네온 나이트 스티커" --- */
+[data-theme="dark"] {
+  --candy-lime: oklch(0.902 0.214 122);   /* #C8F31D 더 형광 */
+  --candy-pink: oklch(0.678 0.237 357);   /* 핑크/오렌지 동일 */
+  --candy-orange: oklch(0.747 0.18 57);
+  --candy-sky: oklch(0.8 0.11 235);
+
+  --bg-primary: oklch(0.183 0.004 286);   /* #121214 */
+  --bg-secondary: oklch(0.231 0.008 275); /* #1C1D21 */
+  --text-primary: oklch(0.962 0.003 286); /* #F2F2F4 */
+  --text-secondary: oklch(0.591 0.011 280); /* #7C7D84 */
+  --border-color: oklch(0.354 0.012 279); /* #3A3B42 */
+
+  --panel-bg: oklch(0.231 0.008 275);     /* #1C1D21 */
+  --panel-bg-deep: oklch(0.155 0.004 286);
+  --panel-border: oklch(0.354 0.012 279);
+  --rivet-color: oklch(0.5 0.01 279);
+
+  --surface-bg: oklch(0.231 0.008 275);   /* #1C1D21 */
+  --surface-fg: oklch(0.962 0.003 286);
+  --surface-fg-muted: oklch(0.591 0.011 280);
+  --surface-border: oklch(0.354 0.012 279); /* #3A3B42 보조 테두리 */
+
+  --toggle-active-bg: oklch(0.274 0.009 277); /* 칩보다 살짝 밝은 차콜 */
+  --toggle-active-fg: oklch(0.902 0.214 122);
+
+  --sticker-border: oklch(0.962 0.003 286); /* 흰 테두리(주요) */
+  --sticker-shadow: 0 3px 14px oklch(0 0 0 / 0.5),
+                    0 1px 3px oklch(0 0 0 / 0.4);
+  --glow-hero: 0 0 16px oklch(0.902 0.214 122 / 0.45); /* rgba(200,243,29,.45) */
+  --glow-pink: 0 0 14px oklch(0.678 0.237 357 / 0.45);
+  --glow-orange: 0 0 14px oklch(0.747 0.18 57 / 0.45);
+
+  --led-fill-bg: oklch(0.902 0.214 122);  /* #C8F31D */
+  --led-fill-fg: oklch(0.234 0.044 113);
+
+  --primary-color: oklch(0.902 0.214 122);
+  --on-primary: oklch(0.234 0.044 113);
+  --danger-color: oklch(0.678 0.237 357);
+  --focus-ring: oklch(0.8 0.11 235);
+
+  --overlay-bg: oklch(0.1 0.004 286 / 0.68);
+
+  --canvas-outside: oklch(0.155 0.004 286);          /* #0C0C0E */
+  --canvas-bg: oklch(0.183 0.004 286);               /* #121214 */
+  --canvas-grid: oklch(0.962 0.003 286 / 0.06);
+  --canvas-bound: oklch(0.42 0.01 279);
+  --map-tint: oklch(0.16 0.004 286 / 0.9);         /* 어둡게+저채도로 누름 */
+
+  --p1-territory: oklch(0.902 0.214 122 / 0.4);
+  --p1-trail: oklch(0.902 0.214 122 / 0.75);
+  --p1-head: oklch(0.902 0.214 122);                 /* #C8F31D */
+  --p1-frame: oklch(0.902 0.214 122);
+
+  --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+  --bot1-trail: oklch(0.678 0.237 357 / 0.72);
+  --bot1-head: oklch(0.678 0.237 357);
+  --bot1-frame: oklch(0.678 0.237 357);
+
+  --bot2-territory: oklch(0.747 0.18 57 / 0.38);
+  --bot2-trail: oklch(0.747 0.18 57 / 0.72);
+  --bot2-head: oklch(0.747 0.18 57);
+  --bot2-frame: oklch(0.747 0.18 57);
+
+  --pop-color: oklch(0.95 0.22 121);
+
+  /* 조이스틱: 다크 = 은은한 흰 링 + 라임 스틱 + 글로우 */
+  --joystick-bg: oklch(1 0 0 / 0.07);
+  --joystick-stick: oklch(0.902 0.214 122);
+  --joystick-stick-shadow: 0 3px 14px oklch(0 0 0 / 0.5),
+                           0 0 16px oklch(0.902 0.214 122 / 0.45);
+}
+
+/* --- System Theme Preference (테마 미선택 시 OS 설정 따름) --- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --candy-lime: oklch(0.902 0.214 122);
+    --candy-pink: oklch(0.678 0.237 357);
+    --candy-orange: oklch(0.747 0.18 57);
+    --candy-sky: oklch(0.8 0.11 235);
+
+    --bg-primary: oklch(0.183 0.004 286);
+    --bg-secondary: oklch(0.231 0.008 275);
+    --text-primary: oklch(0.962 0.003 286);
+    --text-secondary: oklch(0.591 0.011 280);
+    --border-color: oklch(0.354 0.012 279);
+
+    --panel-bg: oklch(0.231 0.008 275);
+    --panel-bg-deep: oklch(0.155 0.004 286);
+    --panel-border: oklch(0.354 0.012 279);
+    --rivet-color: oklch(0.5 0.01 279);
+
+    --surface-bg: oklch(0.231 0.008 275);
+    --surface-fg: oklch(0.962 0.003 286);
+    --surface-fg-muted: oklch(0.591 0.011 280);
+    --surface-border: oklch(0.354 0.012 279);
+
+    --toggle-active-bg: oklch(0.274 0.009 277);
+    --toggle-active-fg: oklch(0.902 0.214 122);
+
+    --sticker-border: oklch(0.962 0.003 286);
+    --sticker-shadow: 0 3px 14px oklch(0 0 0 / 0.5),
+                      0 1px 3px oklch(0 0 0 / 0.4);
+    --glow-hero: 0 0 16px oklch(0.902 0.214 122 / 0.45);
+    --glow-pink: 0 0 14px oklch(0.678 0.237 357 / 0.45);
+    --glow-orange: 0 0 14px oklch(0.747 0.18 57 / 0.45);
+
+    --led-fill-bg: oklch(0.902 0.214 122);
+    --led-fill-fg: oklch(0.234 0.044 113);
+
+    --primary-color: oklch(0.902 0.214 122);
+    --on-primary: oklch(0.234 0.044 113);
+    --danger-color: oklch(0.678 0.237 357);
+    --focus-ring: oklch(0.8 0.11 235);
+
+    --overlay-bg: oklch(0.1 0.004 286 / 0.68);
+
+    --canvas-outside: oklch(0.155 0.004 286);
+    --canvas-bg: oklch(0.183 0.004 286);
+    --canvas-grid: oklch(0.962 0.003 286 / 0.06);
+    --canvas-bound: oklch(0.42 0.01 279);
+    --map-tint: oklch(0.16 0.004 286 / 0.9);
+
+    --p1-territory: oklch(0.902 0.214 122 / 0.4);
+    --p1-trail: oklch(0.902 0.214 122 / 0.75);
+    --p1-head: oklch(0.902 0.214 122);
+    --p1-frame: oklch(0.902 0.214 122);
+
+    --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+    --bot1-trail: oklch(0.678 0.237 357 / 0.72);
+    --bot1-head: oklch(0.678 0.237 357);
+    --bot1-frame: oklch(0.678 0.237 357);
+
+    --bot2-territory: oklch(0.747 0.18 57 / 0.38);
+    --bot2-trail: oklch(0.747 0.18 57 / 0.72);
+    --bot2-head: oklch(0.747 0.18 57);
+    --bot2-frame: oklch(0.747 0.18 57);
+
+    --pop-color: oklch(0.95 0.22 121);
+
+    --joystick-bg: oklch(1 0 0 / 0.07);
+    --joystick-stick: oklch(0.902 0.214 122);
+    --joystick-stick-shadow: 0 3px 14px oklch(0 0 0 / 0.5),
+                             0 0 16px oklch(0.902 0.214 122 / 0.45);
+  }
+}
+
+/* --- Base theming --- */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ============================================================
+   Theme Toggle — 원형 스티커 칩 3개 (인라인 SVG 아이콘)
+   .theme-toggle / .theme-toggle-option[data-theme] 후크는 JS가 쓴다
+   ============================================================ */
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.theme-toggle-option {
+  display: grid;
+  place-items: center;
+  width: 38px;   /* 시안: 원형 칩 38px — 24px 터치 영역 충분 */
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--surface-fg-muted);
+  background: var(--surface-bg);
+  border: var(--surface-border-w) solid var(--surface-border);
+  box-shadow: var(--sticker-shadow);
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.theme-toggle-option svg {
+  display: block;
+  pointer-events: none;
+}
+
+.theme-toggle-option.active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-fg);
+  box-shadow: var(--sticker-shadow), var(--glow-hero);
+}
+
+.theme-toggle-option:active {
+  transform: scale(0.92);
+}
+
+.theme-toggle-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
