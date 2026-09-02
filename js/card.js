@@ -76,7 +76,13 @@
 
       ctx.font = '800 68px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillStyle = win ? P.lime : P.pink;
-      ctx.fillText(win ? 'VICTORY!' : result.outcome === 'death' ? 'K.O.' : 'TIME UP', W / 2, 186);
+      ctx.fillText(
+        result.weekly
+          ? 'WEEK ' + result.weekNum
+          : win ? 'VICTORY!' : result.outcome === 'death' ? 'K.O.' : 'TIME UP',
+        W / 2,
+        186
+      );
 
       // --- 영토 실루엣 (기본: 지도 없음 — 프라이버시) ---
       const area = { x: 90, y: 250, w: 900, h: 740 };
@@ -120,7 +126,9 @@
       ctx.font = '700 34px ui-monospace, SFMono-Regular, Menlo, monospace';
       ctx.fillStyle = P.fg;
       ctx.fillText(
-        'TIME ' + MW.Round.fmt(result.elapsedMs) + ' · TAIL CUT ×' + result.cuts,
+        result.weekly
+          ? 'GAINED +' + (result.gained || 0) + ' · WALKS ×' + (result.walks || 0)
+          : 'TIME ' + MW.Round.fmt(result.elapsedMs) + ' · TAIL CUT ×' + result.cuts,
         W / 2,
         1150
       );

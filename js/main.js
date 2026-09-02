@@ -1,4 +1,6 @@
-/* MapWarm — 게임 오케스트레이션: 틱 루프, 충돌 규칙, HUD, 모드 전환 */
+/* MapWarm — 게임 오케스트레이션 v0.2 "식지 않는 동네"
+   - 데모 모드: 기존 3분 아레나 (라운드·40% 승리·사망) 그대로
+   - GPS 모드: 무사망 영속 월드 — 온기·봇 잠식·주간 정복 카드·조기 닫힘 */
 (function () {
   'use strict';
 
@@ -13,17 +15,27 @@
         new MW.Bot(MW.ID.BOT2, this.board),
       ];
 
-      this.state = 'playing'; // 'playing' | 'dying' | 'ended'
+      this.state = 'playing'; // 'playing' | 'dying' | 'ended' (dying/ended = 데모 전용)
       this.mode = 'demo';     // 'demo' | 'gps'
 
-      // v0.15 라운드 & 정복 카드
+      // 데모 라운드 & 정복 카드
       this.round = new MW.Round(C.ROUND_MS_DEMO, C.WIN_PCT);
       this.card = new MW.ConquestCard(this);
-      this.result = null;   // 판 종료 스냅샷 (카드 렌더용)
-      this.cuts = 0;        // 이번 판에 끊은 꼬리 수
-      this.cutKills = {};   // 내가 꼬리를 끊어 죽인 봇: id → 횟수 (카드에 넘어진 아바타)
-      this.tickCount = 0;   // 봇 페이스 계산용
+      this.result = null;
+      this.cuts = 0;
+      this.cutKills = {};
+      this.tickCount = 0;
       this.deathReason = '';
+
+      // v0.2 온기 & 영속 월드 (GPS 전용)
+      this.warmth = new MW.Warmth(C.GRID);
+      this.world = null;          // {anchor:{lat,lng}, onboarded}
+      this.weekly = this.freshWeek();
+      this.walkReheated = 0;      // 이번 산책에서 재가열한 칸
+      this._preOwner = new Uint8Array(C.GRID * C.GRID); // 점령 직전 스냅샷 (온기 부여용)
+      this._hintShown = false;    // 온보딩 힌트 (산책당 1회)
+      this.overlayMode = 'round'; // 'round' | 'report' | 'weekly'
+      this.overlayQueue = [];
 
       this.best = 0;
       try {
@@ -40,16 +52,20 @@
       this.$toast = document.getElementById('toast');
       this.$timeChip = document.getElementById('chip-time');
       this.$time = document.getElementById('round-time');
+      this.$timeLabel = this.$timeChip.querySelector('.chip-time-label');
       this.$cardCanvas = document.getElementById('card-canvas');
+      this.$mapToggleWrap = document.querySelector('.card-map-toggle');
+      this.$shareBtn = document.getElementById('share-btn');
+      this.$overlayBtn = document.getElementById('restart-btn');
       this.toastTimer = null;
       this._timeTxt = '';
       this._timeWarn = false;
 
-      // 사망 연출 타이머
+      // 사망 연출 타이머 (데모)
       this.deathAt = 0;
       this.deathTimer = null;
 
-      // 실제 지도 배경: 데모 anchor = 서울시청, GPS 모드에선 첫 fix가 anchor
+      // 실제 지도 배경: 데모 anchor = 서울시청, GPS 모드에선 저장된 동네 또는 첫 fix
       const mid0 = C.GRID >> 1;
       this.geo = new MW.Geo(C.DEMO_ANCHOR.lat, C.DEMO_ANCHOR.lng, mid0 + 0.5, mid0 + 0.5);
       this.tileMap = new MW.TileMap();
@@ -66,15 +82,15 @@
         btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
       });
 
-      // 다시 시작 / 자랑하기
-      document.getElementById('restart-btn').addEventListener('click', () => this.reset());
-      document.getElementById('share-btn').addEventListener('click', () => this.shareCard());
+      // 오버레이 버튼: 데모 라운드 = 다시 시작 / GPS 리포트·주간 카드 = 닫기
+      this.$overlayBtn.addEventListener('click', () => this.onOverlayBtn());
+      this.$shareBtn.addEventListener('click', () => this.shareCard());
 
-      // "지도 배경 포함" 토글 (기본 꺼짐 — 프라이버시, localStorage에 기억)
+      // "지도 배경 포함" 토글 (기본 꺼짐 — 프라이버시)
       this.cardMapOn = false;
       try {
         this.cardMapOn = localStorage.getItem('mapwarm-card-map') === '1';
-      } catch (e) { /* 저장 불가 환경 무시 */ }
+      } catch (e) { /* noop */ }
       const $mapToggle = document.getElementById('card-map-toggle');
       $mapToggle.checked = this.cardMapOn;
       $mapToggle.addEventListener('change', () => {
@@ -82,29 +98,28 @@
         try {
           localStorage.setItem('mapwarm-card-map', this.cardMapOn ? '1' : '0');
         } catch (e) { /* noop */ }
-        if (this.result) this.renderCard(); // 결과 화면에서 즉시 다시 그림
+        if (this.result) this.renderCard();
       });
 
       this.$best.textContent = this.best.toFixed(1) + '%';
 
-      // 점유율 칩 pop 타이머 & 점령 델타 추적
+      // 점유율 칩 pop & 델타
       this.chipTimer = null;
       this.playerCells = 0;
 
-      // 결과 화면이 떠 있는 동안 카드를 최신으로 유지:
-      // (1) 타일이 늦게 로드되면 재렌더 (150ms 코얼레싱 — 타일 burst에 한 번만)
+      // 결과 화면이 떠 있는 동안 카드 최신 유지 (타일 로드 / 테마 전환)
       this._cardRerenderTimer = null;
       this.tileMap.onLoad = () => {
-        if (this.state !== 'ended' || !this.result || !this.cardMapOn) return;
-        clearTimeout(this._cardRerenderTimer);
-        this._cardRerenderTimer = setTimeout(() => this.renderCard(), 150);
+        if (!this.$overlay.classList.contains('hidden') && this.result && this.cardMapOn) {
+          clearTimeout(this._cardRerenderTimer);
+          this._cardRerenderTimer = setTimeout(() => this.renderCard(), 150);
+        }
       };
-      // (2) 테마 전환 시 카드도 새 토큰으로 재렌더
       document.addEventListener('mw:themechange', () => {
-        if (this.state === 'ended' && this.result) this.renderCard();
+        if (!this.$overlay.classList.contains('hidden') && this.result) this.renderCard();
       });
 
-      // 첫 진입: 잠시 후에도 타일이 하나도 없으면 1회 안내
+      // 첫 진입 타일 안내
       setTimeout(() => {
         let loaded = false;
         this.tileMap.cache.forEach((t) => {
@@ -113,10 +128,23 @@
         if (!loaded) this.toast('지도를 불러오는 중…');
       }, 800);
 
+      // GPS 월드 보존: 떠날 때 저장
+      window.addEventListener('beforeunload', () => this.saveWorld());
+
       this.reset();
     }
 
-    // ---------- 라운드 초기화 ----------
+    freshWeek() {
+      return {
+        start: MW.Weekly.mondayStart(Date.now()),
+        maxCells: 0,
+        maxOwner: null,
+        gained: 0,
+        walks: 0,
+      };
+    }
+
+    // ---------- 데모 라운드 초기화 ----------
     reset() {
       this.board.clearAll();
       const mid = C.GRID >> 1;
@@ -137,19 +165,14 @@
       this.cuts = 0;
       this.cutKills = {};
       this.tickCount = 0;
-      this.round.reset(this.limitForMode());
+      this.round.reset(C.ROUND_MS_DEMO);
       this.$overlay.classList.add('hidden');
       this.renderer.cam.x = mid + 0.5;
       this.renderer.cam.y = mid + 0.5;
       this.updateOccupancy();
-      this.updateTimeChip();
+      if (this.mode === 'demo') this.updateTimeChip();
     }
 
-    limitForMode() {
-      return this.mode === 'gps' ? C.ROUND_MS_GPS : C.ROUND_MS_DEMO;
-    }
-
-    // 봇 스폰 위치: 빈 3×3 이고 플레이어와 적당히 떨어진 곳
     findSpawn() {
       const s = C.GRID;
       for (let i = 0; i < 60; i++) {
@@ -177,52 +200,65 @@
     tick() {
       if (this.state !== 'playing') return;
 
-      this.round.tick();
       this.tickCount++;
+      const gps = this.mode === 'gps';
+      if (!gps) this.round.tick();
 
       // 1) 플레이어 이동
-      let dir = this.mode === 'gps' ? this.gps.getDir(this.player) : this.input.getDir();
+      let dir = gps ? this.gps.getDir(this.player) : this.input.getDir();
 
-      // 데모 모드에서 꼬리가 있을 때 180° 역주행은 무시 (즉사 오조작 방지, splix 표준)
+      // 데모: 꼬리 있을 때 180° 역주행 무시 (즉사 오조작 방지)
       if (
-        dir && this.mode === 'demo' &&
+        dir && !gps &&
         this.player.hasTrail() && this.player.lastDir &&
         dir[0] === -this.player.lastDir[0] && dir[1] === -this.player.lastDir[1]
       ) {
         dir = null;
       }
 
+      if (gps) this._preOwner.set(this.board.owner);
       const res = this.player.step(dir);
+
       if (res === 'self-trail') {
-        this.killPlayer('자기 꼬리를 밟았어요.');
-        return;
-      }
-      if (res === 'captured') {
-        // 새로 먹은 칸 수 (afterCapture가 playerCells를 갱신하기 전에 계산)
+        if (gps) {
+          this.earlyClose(); // 무사망: 교차점에서 루프 조기 닫힘
+        } else {
+          this.killPlayer('자기 꼬리를 밟았어요.');
+          return;
+        }
+      } else if (res === 'captured') {
         const gained = this.board.count(MW.ID.PLAYER) - this.playerCells;
         this.afterCapture(this.player);
         this.captureFx(gained);
+        if (gps) this.onLoopClosed(gained);
+      } else if (res === 'moved' && gps) {
+        if (!this.player.hasTrail()) {
+          // 내 땅 위를 걷는 중 → 주변 재가열 (출근길 = 방어)
+          this.walkReheated += this.warmth.reheatAround(
+            this.board, this.player.c, this.player.r, C.REHEAT_RADIUS, Date.now()
+          );
+        } else if (this.world && !this.world.onboarded && !this._hintShown) {
+          this._hintShown = true;
+          this.toast('한 바퀴 돌아 시작점으로! ↻');
+        }
       }
       if (this.state !== 'playing') return;
 
-      // 2) 봇 이동 (같은 규칙)
-      // GPS 모드에선 사람 걸음 페이스(1칸당 ~3.5초)로만 움직인다. 모드 전환 즉시 반영.
-      const botEvery =
-        this.mode === 'gps' ? Math.max(1, Math.round(C.BOT_GPS_STEP_MS / C.TICK_MS)) : 1;
+      // 2) 봇 이동 — GPS는 사람 걸음 페이스(1칸당 ~3.5초)
+      const botEvery = gps ? Math.max(1, Math.round(C.BOT_GPS_STEP_MS / C.TICK_MS)) : 1;
       for (let i = 0; i < this.bots.length; i++) {
         const b = this.bots[i];
         if (!b.alive || this.tickCount % botEvery === 0) {
-          b.tickAI(this); // 리스폰 카운트다운은 항상 정상 속도
+          b.tickAI(this);
         } else {
-          b.pc = b.c; // 쉬는 틱: 보간 잔상(제자리 왕복) 방지
+          b.pc = b.c;
           b.pr = b.r;
-          // 대기(wait)는 실시간(틱) 기준 — GPS 페이스에서도 봇이 수 초 안에 출발한다
-          if (b.wait > 0) b.wait--;
+          if (b.wait > 0) b.wait--; // 대기는 실시간(틱) 기준
         }
         if (this.state !== 'playing') return;
       }
 
-      // 3) 꼬리 끊기 판정: 누군가의 머리가 다른 사람 꼬리 위 → 꼬리 주인 사망
+      // 3) 꼬리 끊기 판정
       const all = [this.player].concat(this.bots);
       for (let a = 0; a < all.length; a++) {
         const ea = all[a];
@@ -233,33 +269,91 @@
           if (eb === ea || !eb.alive) continue;
           if (eb.trailSet.has(i)) {
             if (eb === this.player) {
+              if (gps) {
+                // 무사망: 산책 경로만 리셋
+                eb.trail = [];
+                eb.trailSet.clear();
+                this.toast('봇이 산책 경로를 끊었어요! 다시 감싸자');
+                continue;
+              }
               this.killPlayer('봇이 내 꼬리를 밟았어요.');
               return;
             }
             if (ea === this.player) {
-              this.cuts++; // 내가 직접 끊은 꼬리만 카운트
-              this.cutKills[eb.id] = (this.cutKills[eb.id] || 0) + 1; // 카드용 킬 기록
+              this.cuts++;
+              this.cutKills[eb.id] = (this.cutKills[eb.id] || 0) + 1;
             }
-            this.killBot(eb, i); // i = 끊긴 꼬리 지점 (순차 소멸 연출 시작점)
+            this.killBot(eb, i);
           }
         }
       }
 
       this.updateOccupancy();
-      this.updateTimeChip();
 
-      // 4) 라운드 판정: 40% 즉시 승리 > 시간 종료(점유율 순위)
-      const verdict = this.round.check(this.occupancyPct());
-      if (verdict === 'win') {
-        this.endRound('win', '점유율 ' + C.WIN_PCT + '% 달성 — 즉시 승리!');
-      } else if (verdict === 'timeup') {
-        const botCells = this.bots.map((b) => this.board.count(b.id));
-        const won = MW.Round.rankWin(this.playerCells, botCells);
-        this.endRound(won ? 'win' : 'lose', won ? '시간 종료 — 점유율 1위!' : '시간 종료 — 점유율 순위에서 밀렸어요.');
+      if (gps) {
+        this.updateWeekChip();
+        // 플레이 중에도 온기 냉각 점검 (30초마다) & 자동 저장 (10초마다)
+        if (this.tickCount % C.DECAY_CHECK_TICKS === 0) {
+          const cooled = this.warmth.applyDecay(this.board, Date.now());
+          if (cooled) this.updateOccupancy();
+        }
+        if (this.tickCount % C.WORLD_SAVE_TICKS === 0) this.saveWorld();
+      } else {
+        this.updateTimeChip();
+        // 데모 라운드 판정: 40% 즉시 승리 > 시간 종료(점유율 순위)
+        const verdict = this.round.check(this.occupancyPct());
+        if (verdict === 'win') {
+          this.endRound('win', '점유율 ' + C.WIN_PCT + '% 달성 — 즉시 승리!');
+        } else if (verdict === 'timeup') {
+          const botCells = this.bots.map((b) => this.board.count(b.id));
+          const won = MW.Round.rankWin(this.playerCells, botCells);
+          this.endRound(
+            won ? 'win' : 'lose',
+            won ? '시간 종료 — 점유율 1위!' : '시간 종료 — 점유율 순위에서 밀렸어요.'
+          );
+        }
       }
     }
 
-    // 점령 직후: 영토를 전부 빼앗긴(둘러싸인) 상대는 사망
+    // ---------- GPS: 자기 꼬리 교차 = 루프 조기 닫힘 (무사망) ----------
+    earlyClose() {
+      const b = this.board;
+      const p = this.player;
+      const i = b.idx(p.c, p.r);
+      const k = Math.max(0, p.trail.indexOf(i));
+      const loop = p.trail.slice(k); // 교차점부터 = 닫힌 루프. 앞부분 꼬리는 소멸
+      b.capture(MW.ID.PLAYER, loop);
+      p.trail = [];
+      p.trailSet.clear();
+      const gained = b.count(MW.ID.PLAYER) - this.playerCells;
+      this.afterCapture(this.player);
+      this.captureFx(gained);
+      this.onLoopClosed(gained);
+    }
+
+    // GPS: 루프 닫힘 = 산책 세션 종료
+    onLoopClosed(gained) {
+      this._hintShown = false;
+      const g = Math.max(0, gained);
+      this.weekly.gained += g;
+      this.weekly.walks++;
+      if (this.playerCells > this.weekly.maxCells) {
+        this.weekly.maxCells = this.playerCells;
+        this.weekly.maxOwner = Array.from(this.board.owner); // 주간 최대 영토 스냅샷
+      }
+      // 새로 점령된 셀 온기 1.0
+      const now = Date.now();
+      const o = this.board.owner;
+      for (let i = 0; i < o.length; i++) {
+        if (o[i] === MW.ID.PLAYER && this._preOwner[i] !== MW.ID.PLAYER) this.warmth.heat(i, now);
+      }
+      this.toast('이번 산책: +' + g + '칸 · 재가열 ' + this.walkReheated + '칸');
+      this.walkReheated = 0;
+      if (this.world && !this.world.onboarded) this.world.onboarded = true;
+      this.saveWorld();
+    }
+
+    // 점령 직후: 영토를 전부 빼앗긴 상대 처리 (GPS 플레이어는 무사망)
     afterCapture(byEntity) {
       this.updateOccupancy();
       const all = [this.player].concat(this.bots);
@@ -267,28 +361,33 @@
         const e = all[i];
         if (e === byEntity || !e.alive) continue;
         if (this.board.count(e.id) === 0) {
-          if (e === this.player) this.killPlayer('영토를 모두 빼앗겼어요.');
-          else this.killBot(e);
+          if (e === this.player) {
+            if (this.mode === 'gps') {
+              this.toast('영토를 모두 빼앗겼어요 — 어디서든 한 바퀴 = 새 거점!');
+            } else {
+              this.killPlayer('영토를 모두 빼앗겼어요.');
+            }
+          } else {
+            this.killBot(e);
+          }
         }
       }
     }
 
-    // 점령 순간 연출: 점유율 칩 pop + 큰 점령이면 토스트
     captureFx(gained) {
       const chip = document.querySelector('.chip-occupancy');
       if (chip) {
         chip.classList.remove('pop');
-        void chip.offsetWidth; // 리플로우 강제 → 애니메이션 재시작
+        void chip.offsetWidth;
         chip.classList.add('pop');
         clearTimeout(this.chipTimer);
         this.chipTimer = setTimeout(() => chip.classList.remove('pop'), 320);
       }
       if (gained >= 8) this.toast('+' + gained + ' 땅을 먹었다!');
-      if (gained >= 20 && this.renderer) this.renderer.zoomPulse(); // M7 임팩트 줌
+      if (gained >= 20 && this.renderer) this.renderer.zoomPulse();
     }
 
     killBot(bot, cutCellIdx) {
-      // 연출용 스냅샷은 die()가 꼬리를 지우기 전에
       if (this.renderer) this.renderer.addBotDeathFx(bot, cutCellIdx);
       bot.die();
       bot.respawnTimer = C.BOT_RESPAWN_TICKS;
@@ -301,10 +400,10 @@
       bot.spawn(p.c, p.r);
     }
 
-    // 사망 = 그 판 패배: 짧은 연출(머리 깜빡임 + 꼬리 소멸) 후 결과 카드
+    // ---------- 사망 (데모 전용) ----------
     killPlayer(reason) {
       if (this.state !== 'playing') return;
-      this.state = 'dying'; // 틱은 멈추고 렌더러가 연출을 그린다
+      this.state = 'dying';
       this.deathAt = performance.now();
       this.deathReason = reason;
       clearTimeout(this.deathTimer);
@@ -312,14 +411,14 @@
     }
 
     finishDeath() {
-      this.buildResult('death', this.deathReason); // 영토가 지워지기 전에 스냅샷
+      this.buildResult('death', this.deathReason);
       this.player.die();
       this.state = 'ended';
       this.updateOccupancy();
       this.showResult();
     }
 
-    // ---------- 판 종료 & 정복 카드 ----------
+    // ---------- 판 종료 & 정복 카드 (데모) ----------
     endRound(outcome, reason) {
       if (this.state !== 'playing') return;
       this.buildResult(outcome, reason);
@@ -327,27 +426,54 @@
       this.showResult();
     }
 
-    // 카드 렌더용 스냅샷 — 보드가 이후 바뀌어도(사망 등) 카드는 최종 순간을 그린다
     buildResult(outcome, reason) {
       this.result = {
-        outcome, // 'win' | 'lose' | 'death'
+        outcome,
         reason,
         pct: this.occupancyPct(),
         elapsedMs: this.round.elapsedMs(),
         cuts: this.cuts,
-        kills: Object.assign({}, this.cutKills), // id → 횟수 (넘어진 봇 아바타)
+        kills: Object.assign({}, this.cutKills),
         owner: this.board.owner.slice(),
       };
     }
 
     showResult() {
       const r = this.result;
-      this.$resultTitle.textContent =
-        r.outcome === 'win' ? '승리!' : r.outcome === 'death' ? '사망!' : '패배';
-      this.$resultTitle.classList.toggle('win', r.outcome === 'win');
-      this.$deathReason.textContent = r.reason || '';
+      this.showPanel({
+        mode: 'round',
+        title: r.outcome === 'win' ? '승리!' : r.outcome === 'death' ? '사망!' : '패배',
+        win: r.outcome === 'win',
+        reason: r.reason || '',
+        card: true,
+        btn: '다시 시작',
+      });
       this.renderCard();
+    }
+
+    // ---------- 오버레이 패널 (라운드/리포트/주간 공용) ----------
+    showPanel(opts) {
+      this.overlayMode = opts.mode;
+      this.$resultTitle.textContent = opts.title;
+      this.$resultTitle.classList.toggle('win', !!opts.win);
+      this.$deathReason.textContent = opts.reason || '';
+      const cardOn = !!opts.card;
+      this.$cardCanvas.classList.toggle('hidden', !cardOn);
+      this.$mapToggleWrap.classList.toggle('hidden', !cardOn);
+      this.$shareBtn.classList.toggle('hidden', !cardOn);
+      this.$overlayBtn.textContent = opts.btn;
       this.$overlay.classList.remove('hidden');
+    }
+
+    onOverlayBtn() {
+      if (this.overlayMode === 'round') {
+        this.reset();
+        return;
+      }
+      this.$overlay.classList.add('hidden');
+      this.result = null;
+      const next = this.overlayQueue.shift();
+      if (next) next();
     }
 
     renderCard() {
@@ -357,8 +483,46 @@
 
     shareCard() {
       if (!this.result) return;
-      this.renderCard(); // 늦게 로드된 타일까지 반영해 새로 굽는다
+      this.renderCard();
       this.card.share(this.$cardCanvas, this.result);
+    }
+
+    // ---------- v0.2: 유령 리포트 & 주간 카드 ----------
+    showGhostReport(cooled, taken) {
+      this.showPanel({
+        mode: 'report',
+        title: '밤새 리포트',
+        win: false,
+        reason: cooled + '칸이 식어서 사라졌고, 봇이 ' + taken + '칸을 가져갔어요.',
+        card: false,
+        btn: '탈환하러 가기',
+      });
+    }
+
+    showWeeklyCard(week) {
+      const N = C.GRID * C.GRID;
+      this.result = {
+        outcome: 'win',
+        weekly: true,
+        weekNum: MW.Weekly.weekNum(week.start),
+        reason: '',
+        pct: (week.maxCells / N) * 100,
+        elapsedMs: 0,
+        cuts: 0,
+        kills: {},
+        gained: week.gained || 0,
+        walks: week.walks || 0,
+        owner: Uint8Array.from(week.maxOwner),
+      };
+      this.showPanel({
+        mode: 'weekly',
+        title: '주간 정복 카드',
+        win: true,
+        reason: '지난주 최대 영토 스냅샷',
+        card: true,
+        btn: '계속 걷기',
+      });
+      this.renderCard();
     }
 
     // ---------- HUD ----------
@@ -369,7 +533,6 @@
     updateOccupancy() {
       this.playerCells = this.board.count(MW.ID.PLAYER);
       const pct = (this.playerCells / (C.GRID * C.GRID)) * 100;
-      // M8: 숫자 롤링 — 값이 바뀔 때만 0.3s 카운트업
       if (pct !== this._pctTarget) {
         this._pctTarget = pct;
         this.rollOccupancy(pct);
@@ -378,12 +541,11 @@
         this.best = pct;
         try {
           localStorage.setItem('mapwarm-best', String(pct));
-        } catch (e) { /* 저장 불가 환경 무시 */ }
+        } catch (e) { /* noop */ }
         this.$best.textContent = pct.toFixed(1) + '%';
       }
     }
 
-    // M8: 점유율 이전 → 새 값 0.3s 카운트업
     rollOccupancy(to) {
       const from = this._pctShown != null ? this._pctShown : to;
       cancelAnimationFrame(this._rollRaf);
@@ -398,8 +560,9 @@
       this._rollRaf = requestAnimationFrame(step);
     }
 
-    // 남은 시간 전광판 (mm:ss) — 30초 이하면 핑크 경고
+    // 데모: 남은 시간 mm:ss (30초 이하 핑크)
     updateTimeChip() {
+      if (this.$timeLabel.textContent !== 'TIME') this.$timeLabel.textContent = 'TIME';
       const rem = this.round.remainingMs();
       const txt = MW.Round.fmt(rem);
       if (txt !== this._timeTxt) {
@@ -413,24 +576,53 @@
       }
     }
 
+    // GPS: 이번 주 정산까지 D-day
+    updateWeekChip() {
+      if (this.$timeLabel.textContent !== 'WEEK') this.$timeLabel.textContent = 'WEEK';
+      const txt = 'D-' + MW.Weekly.daysToNextMonday(Date.now());
+      if (txt !== this._timeTxt) {
+        this._timeTxt = txt;
+        this.$time.textContent = txt;
+      }
+      if (this._timeWarn) {
+        this._timeWarn = false;
+        this.$timeChip.classList.remove('warn');
+      }
+    }
+
     // ---------- 모드 전환 ----------
     setMode(mode) {
       if (mode === this.mode) return;
       if (mode === 'gps') {
         this.mode = 'gps';
         this.input.setEnabled(false);
+        clearTimeout(this.deathTimer);
+        this.state = 'playing';
+        this.$overlay.classList.add('hidden');
+        // 데모 아레나 잔상 정리 — 월드는 첫 fix에서 로드
+        this.board.clearAll();
+        this.warmth.clearAll();
+        this.player.trail = [];
+        this.player.trailSet.clear();
+        for (let i = 0; i < this.bots.length; i++) {
+          this.bots[i].alive = false;
+          this.bots[i].respawnTimer = 999999; // 월드 로드 때 respawnBot으로 되살림
+        }
+        this.renderer.syncBaseline();
         this.gps.start();
+        this.updateWeekChip();
         this.toast('위치 권한을 요청하는 중…');
       } else {
+        this.saveWorld(); // 떠나기 전 월드 저장
         this.mode = 'demo';
+        this.world = null;
+        this.warmth.clearAll();
         this.gps.stop();
         this.input.setEnabled(true);
         this.$badge.classList.add('hidden');
-        this.resetGeoToDemo(); // 지도 기준점을 서울시청으로 복귀
+        this.resetGeoToDemo();
+        this.reset(); // 데모 아레나 새 판
       }
-      // 제한시간·봇 페이스 즉시 반영 (경과 시간은 유지)
-      this.round.setLimit(this.limitForMode());
-      this.updateTimeChip();
       document.querySelectorAll('.mode-option').forEach((btn) => {
         const on = btn.dataset.mode === this.mode;
         btn.classList.toggle('active', on);
@@ -442,20 +634,159 @@
       this.toast('GPS 모드 시작! 실제로 걸으면 이동해요.');
     }
 
-    // ---------- 지도 기준점 (셀 ↔ 위경도 ↔ 타일이 전부 이 anchor 하나를 공유) ----------
-    setGpsAnchor(lat, lng) {
-      // 첫 GPS fix 지점 = 플레이어가 지금 서 있는 셀의 중심
-      this.geo.setAnchor(lat, lng, this.player.c + 0.5, this.player.r + 0.5);
-      this.tileMap.setGeo(this.geo);
-    }
-
+    // 데모 복귀: 지도 기준점을 데모 anchor(서울시청)로 되돌린다
     resetGeoToDemo() {
       const mid = C.GRID >> 1;
       this.geo.setAnchor(C.DEMO_ANCHOR.lat, C.DEMO_ANCHOR.lng, mid + 0.5, mid + 0.5);
       this.tileMap.setGeo(this.geo);
     }
 
-    // GPS 실패 → 데모 모드로 우아하게 복귀
+    // ---------- 지도 기준점 & 월드 로드 (첫 fix에서 호출) ----------
+    setGpsAnchor(lat, lng) {
+      const mid = C.GRID >> 1;
+      const saved = this.loadWorld();
+      if (saved && this.distMeters(saved.anchor.lat, saved.anchor.lng, lat, lng) <= C.ANCHOR_REUSE_M) {
+        // 같은 동네: 저장된 anchor로 복원해야 셀 ↔ 현실 좌표가 유지된다
+        this.geo.setAnchor(saved.anchor.lat, saved.anchor.lng, mid + 0.5, mid + 0.5);
+        this.tileMap.setGeo(this.geo);
+        this.restoreWorld(saved, lat, lng);
+      } else {
+        // 새 동네 (또는 첫 시작)
+        this.geo.setAnchor(lat, lng, mid + 0.5, mid + 0.5);
+        this.tileMap.setGeo(this.geo);
+        this.newWorld();
+      }
+    }
+
+    restoreWorld(saved, lat, lng) {
+      this.board.owner.set(Uint8Array.from(saved.owner));
+      this.board.rev++;
+      this.warmth.lastWarm.set(Float64Array.from(saved.warm));
+      this.world = { anchor: saved.anchor, onboarded: !!saved.onboarded };
+      this.weekly = saved.week && saved.week.start ? saved.week : this.freshWeek();
+      this.walkReheated = 0;
+      this.overlayQueue.length = 0;
+
+      // 플레이어 = 현재 fix 위치
+      const cell = this.geo.latLngToCell(lat, lng);
+      this.placePlayer(cell.c, cell.r);
+      for (let i = 0; i < this.bots.length; i++) this.respawnBot(this.bots[i]);
+
+      // 주간 롤오버: 지난주 스냅샷으로 카드 발행 → 주간 점수 리셋 (영토는 유지)
+      const nowMonday = MW.Weekly.mondayStart(Date.now());
+      if (this.weekly.start < nowMonday) {
+        const past = this.weekly;
+        if (past.maxCells > 0 && past.maxOwner && past.maxOwner.length === saved.owner.length) {
+          this.overlayQueue.push(() => this.showWeeklyCard(past));
+        }
+        this.weekly = this.freshWeek();
+      }
+
+      // 경과 정산: ① 냉각 ② 봇 잠식 ③ 밤새 리포트
+      const now = Date.now();
+      const cooled = this.warmth.applyDecay(this.board, now);
+      const er = this.warmth.erode(this.board, now - (saved.savedAt || now), now, Math.random);
+      this.updateOccupancy();
+      if (this.playerCells > this.weekly.maxCells) {
+        this.weekly.maxCells = this.playerCells;
+        this.weekly.maxOwner = Array.from(this.board.owner);
+      }
+      if (cooled || er.taken) {
+        this.overlayQueue.push(() => this.showGhostReport(cooled, er.taken));
+      }
+
+      this.renderer.syncBaseline(); // 복원·정산분은 팝 없이 기준선으로
+      const first = this.overlayQueue.shift();
+      if (first) first();
+      this.saveWorld();
+    }
+
+    newWorld() {
+      this.board.clearAll();
+      this.warmth.clearAll();
+      this.world = { anchor: { lat: this.geo.lat, lng: this.geo.lng }, onboarded: false };
+      this.weekly = this.freshWeek();
+      this.walkReheated = 0;
+      const mid = C.GRID >> 1;
+      this.placePlayer(mid, mid);
+      for (let i = 0; i < this.bots.length; i++) this.respawnBot(this.bots[i]);
+      this.updateOccupancy();
+      this.weekly.maxCells = this.playerCells;
+      this.weekly.maxOwner = Array.from(this.board.owner);
+      this.renderer.syncBaseline();
+      this.toast('새 동네! 한 바퀴 돌아 땅을 감싸자');
+      this.saveWorld();
+    }
+
+    placePlayer(c, r) {
+      const s = C.GRID;
+      c = Math.min(Math.max(c, 2), s - 3);
+      r = Math.min(Math.max(r, 2), s - 3);
+      const p = this.player;
+      p.alive = true;
+      p.c = c;
+      p.r = r;
+      p.pc = c;
+      p.pr = r;
+      p.trail = [];
+      p.trailSet.clear();
+      p.lastDir = null;
+      this._hintShown = false;
+      if (this.board.count(MW.ID.PLAYER) === 0) {
+        // 영토가 없으면 시작 영토: 온보딩 첫 세션 = 5×5, 이후 = 3×3
+        const rad = this.world && this.world.onboarded ? C.START_RADIUS : C.GPS_START_RADIUS;
+        this.board.claimStart(c, r, MW.ID.PLAYER, rad);
+        const now = Date.now();
+        for (let dr = -rad; dr <= rad; dr++) {
+          for (let dc = -rad; dc <= rad; dc++) {
+            if (this.board.inBounds(c + dc, r + dr)) {
+              this.warmth.heat(this.board.idx(c + dc, r + dr), now);
+            }
+          }
+        }
+      }
+      this.renderer.cam.x = c + 0.5;
+      this.renderer.cam.y = r + 0.5;
+    }
+
+    distMeters(lat1, lng1, lat2, lng2) {
+      const kx = 111320 * Math.cos((lat1 * Math.PI) / 180);
+      return Math.hypot((lng2 - lng1) * kx, (lat2 - lat1) * 110574);
+    }
+
+    // ---------- 영속 (localStorage, GPS 월드만) ----------
+    loadWorld() {
+      try {
+        const raw = localStorage.getItem(C.WORLD_KEY);
+        if (!raw) return null;
+        const d = JSON.parse(raw);
+        const N = C.GRID * C.GRID;
+        if (!d || !d.anchor || !Array.isArray(d.owner) || d.owner.length !== N) return null;
+        if (!Array.isArray(d.warm) || d.warm.length !== N) return null;
+        return d;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    saveWorld() {
+      if (this.mode !== 'gps' || !this.world) return;
+      try {
+        localStorage.setItem(
+          C.WORLD_KEY,
+          JSON.stringify({
+            anchor: this.world.anchor,
+            onboarded: this.world.onboarded,
+            savedAt: Date.now(),
+            owner: Array.from(this.board.owner),
+            warm: Array.from(this.warmth.lastWarm),
+            week: this.weekly,
+          })
+        );
+      } catch (e) { /* 저장 실패 무시 (용량 등) */ }
+    }
+
+    // ---------- GPS 실패 → 데모 폴백 (기존 로직 유지) ----------
     gpsFailed(err) {
       const denied = err && err.code === 1;
       this.setMode('demo');

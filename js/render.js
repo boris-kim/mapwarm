@@ -259,8 +259,23 @@
         }
       }
       prev.set(o);
+      this.computeField();
+    }
 
-      // 도트 반지름 + 소유자별 클러스터 중심
+    // 월드 복원/정산 직후: 팝·플로트 없이 현재 상태를 기준선으로 채택
+    syncBaseline() {
+      this.boardRev = this.board.rev;
+      this.prevOwner.set(this.board.owner);
+      this.pops.clear();
+      this.floats.length = 0;
+      this.computeField();
+    }
+
+    // 도트 반지름 + 소유자별 클러스터 중심
+    computeField() {
+      const board = this.board;
+      const s = board.size;
+      const o = board.owner;
       const d = this.dotR;
       const cl = { 1: { sx: 0, sy: 0, n: 0 }, 2: { sx: 0, sy: 0, n: 0 }, 3: { sx: 0, sy: 0, n: 0 } };
       for (let r = 0; r < s; r++) {
@@ -456,6 +471,11 @@
         });
       }
 
+      // v0.2 온기: GPS 모드에서 내 도트는 온기에 따라 축소·감쇠 (식은 셀은 옅은 패스로)
+      const warmth = this.game.mode === 'gps' ? this.game.warmth : null;
+      const wallNow = warmth ? Date.now() : 0;
+      const coldDots = []; // [cx, cy, rad] — 온기 <0.5 셀 (알파 감쇠 패스)
+
       for (let id = 1; id <= 3; id++) {
         const ringCells = []; // 링 변형 (~15%, 해시 기반)
         ctx.fillStyle = P.ent[id].t;
@@ -469,7 +489,15 @@
             const cy = oy + r * cp + half;
             // M1 도트 숨쉬기
             const breathe = 1 + 0.04 * Math.sin(now / 900 + (c + r) * 0.7);
-            const rad = d[i] * cp * breathe;
+            let rad = d[i] * cp * breathe;
+            if (warmth && id === 1) {
+              const wv = warmth.warmAt(i, wallNow);
+              rad *= 0.35 + 0.65 * wv; // 식으면 축소
+              if (wv < 0.5) {
+                coldDots.push(cx, cy, rad); // 감쇠 패스로
+                continue;
+              }
+            }
             if (d[i] <= EDGE_CUT) {
               // 가장자리(이웃 ≤3): 2×2 서브도트 디더링
               const sub = Math.max(0.9, rad * 0.5);
@@ -505,6 +533,22 @@
           }
           ctx.stroke();
         }
+      }
+
+      // 식은 내 도트: 옅게 (온기 <0.5 — 감쇠 표현)
+      if (coldDots.length) {
+        ctx.save();
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = P.ent[1].t;
+        ctx.beginPath();
+        for (let k = 0; k < coldDots.length; k += 3) {
+          const rad = coldDots[k + 2];
+          if (rad <= 0.3) continue;
+          ctx.moveTo(coldDots[k] + rad, coldDots[k + 1]);
+          ctx.arc(coldDots[k], coldDots[k + 1], rad, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        ctx.restore();
       }
 
       // 팝 중인 도트: 물결 지연 + 스케일 인 (초반 팝 색 플래시)
