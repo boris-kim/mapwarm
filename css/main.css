@@ -181,6 +181,52 @@ body {
   flex: 0 0 auto;
 }
 
+/* --- 음소거 토글 (v0.2): 원형 스티커 칩, 테마 토글과 동일 언어 --- */
+.mute-btn {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--surface-fg-muted);
+  background: var(--surface-bg);
+  border: var(--surface-border-w) solid var(--surface-border);
+  box-shadow: var(--sticker-shadow);
+  cursor: pointer;
+  transition: transform 0.12s ease, color 0.2s ease;
+}
+
+.mute-btn svg {
+  display: block;
+  pointer-events: none;
+}
+
+.mute-btn .ico-sound-off {
+  display: none;
+}
+
+.mute-btn.muted {
+  color: var(--candy-pink);
+}
+
+.mute-btn.muted .ico-sound-on {
+  display: none;
+}
+
+.mute-btn.muted .ico-sound-off {
+  display: block;
+}
+
+.mute-btn:active {
+  transform: scale(0.92);
+}
+
+.mute-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* --- 남은 시간 칩 (v0.15): 차콜 패널 + 모노 전광판, 30초 남으면 핑크 --- */
 .chip-time {
   display: inline-flex;

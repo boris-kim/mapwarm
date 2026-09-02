@@ -35,7 +35,8 @@
     ERODE_MIN_FRAC: 0.05,   // 봇 잠식: 하루당 내 영토의 5~10%
     ERODE_MAX_FRAC: 0.10,
     ERODE_MAX_DAYS: 7,      // 잠식 경과 계산 상한 (7일 이상 방치 = 7일치)
-    GPS_START_RADIUS: 2,    // 온보딩 첫 GPS 세션 시작 영토 5×5 (반경 2)
+    GPS_START_RADIUS: 3,    // 온보딩 첫 GPS 세션 시작 영토 7×7 (반경 3) — 첫 보상 공백 완화
+    WARM_ALERT_AVG: 0.7,    // 내 영토 평균 온기가 이 밑이면 "식음 경고" (D1~D4 능동 훅)
     ANCHOR_REUSE_M: 250,    // 저장된 동네 anchor에서 이 거리 안이면 같은 보드 복원
     WORLD_KEY: 'mapwarm-world-v1', // localStorage 영속 키
     WORLD_SAVE_TICKS: 80,   // 자동 저장 주기 (80틱 = 10초)

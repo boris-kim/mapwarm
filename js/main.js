@@ -77,6 +77,24 @@
       this.gps = new MW.GpsController(this);
       this.renderer = new MW.Renderer(document.getElementById('game'), this.board, this);
 
+      // 소리 + 햅틱: 첫 사용자 제스처에서 AudioContext 활성화 (autoplay 정책)
+      this.audio = new MW.AudioFx();
+      const unlock = () => this.audio.unlock();
+      window.addEventListener('pointerdown', unlock, { passive: true });
+      window.addEventListener('keydown', unlock);
+      this._dangerWasNear = false; // 위험 경고음 엣지 트리거
+
+      // 음소거 토글 (HUD 아이콘)
+      this.$muteBtn = document.getElementById('mute-btn');
+      if (this.$muteBtn) {
+        this.updateMuteUI();
+        this.$muteBtn.addEventListener('click', () => {
+          this.audio.unlock();
+          this.audio.toggleMute();
+          this.updateMuteUI();
+        });
+      }
+
       // 모드 토글
       document.querySelectorAll('.mode-option').forEach((btn) => {
         btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
@@ -290,6 +308,11 @@
 
       this.updateOccupancy();
 
+      // 위험 경고음: 머리가 자기 꼬리와 맨해튼 ≤2 (M5 비네트와 동일 조건, 진입 순간에만)
+      const near = this.playerNearOwnTrail();
+      if (near && !this._dangerWasNear && this.audio) this.audio.danger();
+      this._dangerWasNear = near;
+
       if (gps) {
         this.updateWeekChip();
         // 플레이 중에도 온기 냉각 점검 (30초마다) & 자동 저장 (10초마다)
@@ -315,6 +338,21 @@
       }
     }
 
+    // 머리가 자기 꼬리(직전 3칸 제외)와 맨해튼 거리 ≤2인가 (위험 경고용)
+    playerNearOwnTrail() {
+      const p = this.player;
+      const trail = p.trail;
+      if (!p.alive || trail.length < 5) return false;
+      const s = C.GRID;
+      for (let k = 0; k < trail.length - 3; k++) {
+        const i = trail[k];
+        const c = i % s;
+        const r = (i - c) / s;
+        if (Math.abs(c - p.c) + Math.abs(r - p.r) <= 2) return true;
+      }
+      return false;
+    }
+
     // ---------- GPS: 자기 꼬리 교차 = 루프 조기 닫힘 (무사망) ----------
     earlyClose() {
       const b = this.board;
@@ -327,7 +365,8 @@
       p.trailSet.clear();
       const gained = b.count(MW.ID.PLAYER) - this.playerCells;
       this.afterCapture(this.player);
-      this.captureFx(gained);
+      if (this.audio) this.audio.earlyClose(); // 조기 닫힘 전용 낮은 톤 + 패턴 진동
+      this.captureFx(gained, true); // 팝 연출은 유지, 점령 사운드는 억제
       this.onLoopClosed(gained);
     }
 
@@ -374,7 +413,7 @@
       }
     }
 
-    captureFx(gained) {
+    captureFx(gained, silentAudio) {
       const chip = document.querySelector('.chip-occupancy');
       if (chip) {
         chip.classList.remove('pop');
@@ -383,12 +422,15 @@
         clearTimeout(this.chipTimer);
         this.chipTimer = setTimeout(() => chip.classList.remove('pop'), 320);
       }
+      if (gained > 0 && !silentAudio && this.audio) this.audio.capture(); // 점령 팝 + 짧은 진동
       if (gained >= 8) this.toast('+' + gained + ' 땅을 먹었다!');
       if (gained >= 20 && this.renderer) this.renderer.zoomPulse();
     }
 
     killBot(bot, cutCellIdx) {
       if (this.renderer) this.renderer.addBotDeathFx(bot, cutCellIdx);
+      // 내가 직접 끊은 처치만 사운드(밤새 잠식·리스폰 정리 등엔 무음)
+      if (cutCellIdx != null && this.audio) this.audio.botKill();
       bot.die();
       bot.respawnTimer = C.BOT_RESPAWN_TICKS;
     }
@@ -489,6 +531,7 @@
 
     // ---------- v0.2: 유령 리포트 & 주간 카드 ----------
     showGhostReport(cooled, taken) {
+      if (this.audio) this.audio.report();
       this.showPanel({
         mode: 'report',
         title: '밤새 리포트',
@@ -497,6 +540,43 @@
         card: false,
         btn: '탈환하러 가기',
       });
+    }
+
+    // D1~D4 능동 훅: 잠식 전이라도 평균 온기가 떨어졌으면 "지키러 나가라" 경고
+    showColdAlert(lukewarm) {
+      if (this.audio) this.audio.report();
+      this.showPanel({
+        mode: 'report',
+        title: '동네가 식고 있어요',
+        win: false,
+        reason: lukewarm + '칸이 미지근해졌어요. 지금 나가서 다시 데우세요 🔥',
+        card: false,
+        btn: '데우러 가기',
+      });
+    }
+
+    // 내 영토 평균 온기 (0~1). 영토 없으면 1로 취급(경고 안 함)
+    avgWarmth(now) {
+      const o = this.board.owner;
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < o.length; i++) {
+        if (o[i] === MW.ID.PLAYER) {
+          sum += this.warmth.warmAt(i, now);
+          n++;
+        }
+      }
+      return n ? sum / n : 1;
+    }
+
+    // 온기 <0.7 인 내 셀 수 (경고 문구용)
+    lukewarmCount(now) {
+      const o = this.board.owner;
+      let n = 0;
+      for (let i = 0; i < o.length; i++) {
+        if (o[i] === MW.ID.PLAYER && this.warmth.warmAt(i, now) < C.WARM_ALERT_AVG) n++;
+      }
+      return n;
     }
 
     showWeeklyCard(week) {
@@ -514,6 +594,7 @@
         walks: week.walks || 0,
         owner: Uint8Array.from(week.maxOwner),
       };
+      if (this.audio) this.audio.report();
       this.showPanel({
         mode: 'weekly',
         title: '주간 정복 카드',
@@ -523,6 +604,14 @@
         btn: '계속 걷기',
       });
       this.renderCard();
+    }
+
+    updateMuteUI() {
+      if (!this.$muteBtn) return;
+      const m = this.audio.muted;
+      this.$muteBtn.classList.toggle('muted', m);
+      this.$muteBtn.setAttribute('aria-pressed', String(m));
+      this.$muteBtn.setAttribute('aria-label', m ? '소리 켜기' : '소리 끄기');
     }
 
     // ---------- HUD ----------
@@ -691,8 +780,13 @@
         this.weekly.maxCells = this.playerCells;
         this.weekly.maxOwner = Array.from(this.board.owner);
       }
-      if (cooled || er.taken) {
+      if (er.taken) {
+        // 잠식(뺏김)이 있으면 밤새 리포트 (D5+)
         this.overlayQueue.push(() => this.showGhostReport(cooled, er.taken));
+      } else if (this.playerCells > 0 && this.avgWarmth(now) < C.WARM_ALERT_AVG) {
+        // 아직 안 뺏겼지만 평균 온기가 떨어짐 → D1~D4 능동 훅 "식음 경고"
+        const lw = this.lukewarmCount(now);
+        if (lw > 0) this.overlayQueue.push(() => this.showColdAlert(lw));
       }
 
       this.renderer.syncBaseline(); // 복원·정산분은 팝 없이 기준선으로
