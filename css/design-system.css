@@ -77,22 +77,26 @@
   /* --- Canvas (게임판) 토큰 — JS가 getComputedStyle로 읽는다 --- */
   --canvas-outside: oklch(0.905 0.007 116);          /* #DFE0DB 게임판 바깥 */
   --canvas-bg: oklch(0.938 0.005 118);               /* #EAEBE7 게임판 배경 */
-  --canvas-grid: oklch(0.29 0.005 286 / 0.07);
+  --canvas-grid: oklch(0.29 0.005 286 / 0);          /* v2: 격자선 제거 */
   --canvas-bound: oklch(0.55 0.008 286);             /* 게임판 경계선 */
-  --map-tint: oklch(0.938 0.005 118 / 0.62);         /* 채도 강하게 뺀 밝은 워시 — 지도는 무대 */
+  --map-tint: oklch(0.938 0.005 118 / 0.78);         /* v2: 지도는 무대 — 워시 상향 */
 
-  /* --- 엔티티: 플레이어(라임) / 봇1(핫핑크) / 봇2(오렌지) --- */
-  --p1-territory: oklch(0.865 0.21 124 / 0.45);
+  /* v2: 마커 이름 라벨 필 (라이트 = 차콜 필 + 라임 글자) */
+  --label-bg: oklch(0.29 0.005 286);
+  --label-fg: oklch(0.865 0.21 124);
+
+  /* --- 엔티티: 플레이어(라임) / 봇1(핫핑크) / 봇2(오렌지) — v2: 도트 불투명 --- */
+  --p1-territory: oklch(0.865 0.21 124 / 0.96);
   --p1-trail: oklch(0.865 0.21 124 / 0.8);
   --p1-head: oklch(0.865 0.21 124);                  /* #B7E819 */
   --p1-frame: oklch(0.865 0.21 124);                 /* 아바타 스티커 프레임 */
 
-  --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+  --bot1-territory: oklch(0.678 0.237 357 / 0.96);
   --bot1-trail: oklch(0.678 0.237 357 / 0.72);
   --bot1-head: oklch(0.678 0.237 357);               /* #FF3E9A */
   --bot1-frame: oklch(0.678 0.237 357);
 
-  --bot2-territory: oklch(0.747 0.18 57 / 0.4);
+  --bot2-territory: oklch(0.747 0.18 57 / 0.96);
   --bot2-trail: oklch(0.747 0.18 57 / 0.74);
   --bot2-head: oklch(0.747 0.18 57);                 /* #FF8A00 */
   --bot2-frame: oklch(0.747 0.18 57);
@@ -179,21 +183,25 @@
 
   --canvas-outside: oklch(0.155 0.004 286);          /* #0C0C0E */
   --canvas-bg: oklch(0.183 0.004 286);               /* #121214 */
-  --canvas-grid: oklch(0.962 0.003 286 / 0.06);
+  --canvas-grid: oklch(0.962 0.003 286 / 0);         /* v2: 격자선 제거 */
   --canvas-bound: oklch(0.42 0.01 279);
   --map-tint: oklch(0.16 0.004 286 / 0.9);         /* 어둡게+저채도로 누름 */
 
-  --p1-territory: oklch(0.902 0.214 122 / 0.4);
+  /* v2: 마커 이름 라벨 필 (다크 = 라임 필 + 차콜 글자) */
+  --label-bg: oklch(0.902 0.214 122);
+  --label-fg: oklch(0.234 0.044 113);
+
+  --p1-territory: oklch(0.902 0.214 122 / 0.96);
   --p1-trail: oklch(0.902 0.214 122 / 0.75);
   --p1-head: oklch(0.902 0.214 122);                 /* #C8F31D */
   --p1-frame: oklch(0.902 0.214 122);
 
-  --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+  --bot1-territory: oklch(0.678 0.237 357 / 0.96);
   --bot1-trail: oklch(0.678 0.237 357 / 0.72);
   --bot1-head: oklch(0.678 0.237 357);
   --bot1-frame: oklch(0.678 0.237 357);
 
-  --bot2-territory: oklch(0.747 0.18 57 / 0.38);
+  --bot2-territory: oklch(0.747 0.18 57 / 0.96);
   --bot2-trail: oklch(0.747 0.18 57 / 0.72);
   --bot2-head: oklch(0.747 0.18 57);
   --bot2-frame: oklch(0.747 0.18 57);
@@ -253,21 +261,24 @@
 
     --canvas-outside: oklch(0.155 0.004 286);
     --canvas-bg: oklch(0.183 0.004 286);
-    --canvas-grid: oklch(0.962 0.003 286 / 0.06);
+    --canvas-grid: oklch(0.962 0.003 286 / 0);
     --canvas-bound: oklch(0.42 0.01 279);
     --map-tint: oklch(0.16 0.004 286 / 0.9);
 
-    --p1-territory: oklch(0.902 0.214 122 / 0.4);
+    --label-bg: oklch(0.902 0.214 122);
+    --label-fg: oklch(0.234 0.044 113);
+
+    --p1-territory: oklch(0.902 0.214 122 / 0.96);
     --p1-trail: oklch(0.902 0.214 122 / 0.75);
     --p1-head: oklch(0.902 0.214 122);
     --p1-frame: oklch(0.902 0.214 122);
 
-    --bot1-territory: oklch(0.678 0.237 357 / 0.38);
+    --bot1-territory: oklch(0.678 0.237 357 / 0.96);
     --bot1-trail: oklch(0.678 0.237 357 / 0.72);
     --bot1-head: oklch(0.678 0.237 357);
     --bot1-frame: oklch(0.678 0.237 357);
 
-    --bot2-territory: oklch(0.747 0.18 57 / 0.38);
+    --bot2-territory: oklch(0.747 0.18 57 / 0.96);
     --bot2-trail: oklch(0.747 0.18 57 / 0.72);
     --bot2-head: oklch(0.747 0.18 57);
     --bot2-frame: oklch(0.747 0.18 57);

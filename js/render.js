@@ -1,17 +1,36 @@
-/* MapWarm — 캔버스 렌더러 (아트 디렉션 §6.5: 하드웨어 토이 × 할프톤 스티커)
-   - 영토: 할프톤 도트 (8방 이웃 수에 비례한 점 크기, 면 채우기 없음)
-   - 꼬리: 라운드 캡슐 폴리라인 2패스 (흰 외곽선 + 소유자 색)
-   - 아바타: 부루마블 말 스타일 꽃잎 스티커 마커 + 이름 라벨
-   - 색상은 전부 CSS 토큰(getComputedStyle) — 테마를 따라간다 */
+/* MapWarm — 캔버스 렌더러 v2 ("지도 자체가 그래픽 포스터")
+   - 영토: 빽빽한 도트 매트릭스 (링 변형 + 가장자리 디더링 + 숨쉬기 펄스)
+   - 지도: 저채도·저대비 무대 + 바닥 텍스처(존 라벨·노이즈 패치)
+   - 타이포: 대형 점유율 %, 점령 "+N" 플로트
+   - 모션: 점령 물결, 꼬리 스파클, 봇 처치 순차 소멸, 위험 비네트, 마이크로 줌
+   성능 예산: 60fps — 그라디언트 프레임당 ≤4, 텍스처는 캐시, shadowBlur는 다크 한정 소수
+   색상은 전부 CSS 토큰(getComputedStyle) — 테마를 따라간다 */
 (function () {
   'use strict';
 
-  const DOT_MIN = 0.14; // 도트 반지름 최소 (셀 크기 대비, 이웃 0)
-  const DOT_MAX = 0.36; // 도트 반지름 최대 (8방 이웃 전부 내 땅)
-  const POP_MS = 250;   // 점령 팝 스케일-인 길이
+  const DOT_MIN = 0.18;   // v2: 밀도 상향
+  const DOT_MAX = 0.48;
+  const EDGE_CUT = 0.295; // 이 이하(이웃 ≤3) = 가장자리 → 2×2 디더링
+  const POP_MS = 250;     // 점령 팝 스케일-인
+  const WAVE_MS = 18;     // 점령 물결: 중심 거리 × 18ms 지연
+  const FLOAT_MS = 1000;  // "+N" 타이포 수명
+  const ZOOM_MS = 120;    // 점령 임팩트 마이크로 줌
 
-  const NAMES = { 1: 'ME', 2: 'PIKO', 3: 'MOMO' };
-  const MARKER_SIZE = { 1: 34, 2: 26, 3: 26 };
+  const MARKER_SIZE = { 1: 58, 2: 44, 3: 44 }; // v2: 존재감 상향
+
+  const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+
+  // 고정 시드 PRNG (바닥 텍스처용)
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0;
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
   class Renderer {
     constructor(canvas, board, game) {
@@ -23,12 +42,32 @@
       this.palette = null;
       this.isDark = false;
 
-      // 할프톤 도트 캐시 — 영토가 바뀔 때(board.rev 증가)만 다시 계산
+      // 도트 캐시 — 영토가 바뀔 때(board.rev)만 재계산
       const N = board.size * board.size;
       this.boardRev = -1;
-      this.dotR = new Float32Array(N);   // 셀별 도트 반지름 계수 (0 = 도트 없음)
-      this.prevOwner = new Uint8Array(N); // 팝 연출용 이전 소유 스냅샷
-      this.pops = new Map();              // idx → 팝 시작 시각
+      this.dotR = new Float32Array(N);
+      this.prevOwner = new Uint8Array(N);
+      this.pops = new Map(); // idx → 팝 시작 시각 (물결: 중심 거리만큼 지연)
+
+      // 소유자별 영토 클러스터 (다크 네온 글로우 언더레이)
+      this.clusters = { 1: null, 2: null, 3: null };
+
+      // 이펙트 큐
+      this.floats = []; // "+N" 타이포 {x,y(셀),text,t0}
+      this.botFx = [];  // 봇 처치 연출 {id,trail,cutK,head,debris,t0}
+      this.zoomT0 = -1e9;
+
+      // 이름 라벨 (닉네임: localStorage → 없으면 MINJAE)
+      let nick = 'MINJAE';
+      try {
+        nick = (localStorage.getItem('mapwarm-nick') || 'MINJAE')
+          .toUpperCase()
+          .slice(0, 10);
+      } catch (e) { /* noop */ }
+      this.names = { 1: nick, 2: 'PIKO', 3: 'MOMO' };
+
+      // 바닥 텍스처 (고정 시드, 셀 좌표 캐시)
+      this.texture = this.buildTexture();
 
       this.refreshPalette();
       this.resize();
@@ -49,28 +88,25 @@
           t: tok('--' + prefix + '-territory', head),
           tr: tok('--' + prefix + '-trail', head),
           h: head,
-          frame: tok('--' + prefix + '-frame', head), // 마커 꽃잎 프레임 색
+          frame: tok('--' + prefix + '-frame', head),
         };
       };
       this.palette = {
         outside: tok('--canvas-outside', '#e6ebe3'),
         bg: tok('--canvas-bg', '#eaebe7'),
-        grid: tok('--canvas-grid', 'rgba(0,0,0,0.05)'),
+        grid: tok('--canvas-grid', 'rgba(0,0,0,0)'),
         bound: tok('--canvas-bound', '#9a9b96'),
-        mapTint: tok('--map-tint', 'rgba(255,255,255,0.3)'),
-        pop: null, // 아래에서 채움 (플레이어 색 폴백)
-        // 토큰 미도착 대비 폴백 — ux-architect 토큰이 오면 자동으로 그 값 사용
+        mapTint: tok('--map-tint', 'rgba(255,255,255,0.5)'),
         white: tok('--sticker-white', tok('--on-primary', '#ffffff')),
         face: tok('--avatar-face', '#2b2b2e'),
-        ent: {
-          1: entTok('p1'),
-          2: entTok('bot1'),
-          3: entTok('bot2'),
-        },
+        labelBg: tok('--label-bg', tok('--avatar-face', '#2b2b2e')),
+        labelFg: tok('--label-fg', '#b7e819'),
+        danger: tok('--danger-color', '#ff3e9a'),
+        pop: null,
+        ent: { 1: entTok('p1'), 2: entTok('bot1'), 3: entTok('bot2') },
       };
       this.palette.pop = tok('--pop-color', this.palette.ent[1].h);
 
-      // 다크 여부: 테마 시스템(data-theme + 시스템 선호)을 읽기만 한다
       const t = document.documentElement.getAttribute('data-theme');
       this.isDark =
         t === 'dark' ||
@@ -87,13 +123,102 @@
     }
 
     lerpPos(e, t) {
-      return {
-        x: e.pc + (e.c - e.pc) * t,
-        y: e.pr + (e.r - e.pr) * t,
-      };
+      return { x: e.pc + (e.c - e.pc) * t, y: e.pr + (e.r - e.pr) * t };
     }
 
-    // ---------- 할프톤 도트 캐시 (영토 변경 시에만) ----------
+    // ---------- 외부 트리거 ----------
+    zoomPulse() {
+      this.zoomT0 = performance.now();
+    }
+
+    // 봇 처치: 꼬리 스냅샷 + 끊긴 지점 + 파편 (die() 호출 전에 불러야 한다)
+    addBotDeathFx(bot, cutCellIdx) {
+      const trail = bot.trail.slice();
+      let cutK = cutCellIdx != null ? trail.indexOf(cutCellIdx) : -1;
+      if (cutK < 0) cutK = Math.max(0, trail.length - 1);
+      const debris = [];
+      const n = 6 + ((Math.random() * 3) | 0);
+      for (let i = 0; i < n; i++) {
+        debris.push({
+          a: Math.random() * Math.PI * 2,
+          v: 30 + Math.random() * 60,
+        });
+      }
+      this.botFx.push({
+        id: bot.id,
+        trail,
+        cutK,
+        head: { c: bot.c, r: bot.r },
+        debris,
+        t0: performance.now(),
+      });
+    }
+
+    // ---------- 바닥 텍스처 (고정 시드, 1회 생성) ----------
+    buildTexture() {
+      const rnd = mulberry32(20260902);
+      const items = { labels: [], rects: [] };
+      // 존 라벨 「01」~「04」: 사분면 중심
+      const q = [[20, 20, '01'], [60, 20, '02'], [20, 60, '03'], [60, 60, '04']];
+      for (let i = 0; i < q.length; i++) {
+        items.labels.push({ c: q[i][0], r: q[i][1], text: q[i][2] });
+      }
+      // 디더 노이즈 패치: 작은 사각형 무리
+      for (let p = 0; p < 26; p++) {
+        const bc = 3 + rnd() * 74;
+        const br = 3 + rnd() * 74;
+        const n = 4 + ((rnd() * 6) | 0);
+        for (let k = 0; k < n; k++) {
+          items.rects.push({
+            c: bc + (rnd() - 0.5) * 5,
+            r: br + (rnd() - 0.5) * 5,
+            s: 0.1 + rnd() * 0.16,
+          });
+        }
+      }
+      // 픽셀 클러스터: 2×2/3×3 미니 그리드
+      for (let p = 0; p < 16; p++) {
+        const bc = 4 + rnd() * 72;
+        const br = 4 + rnd() * 72;
+        const g = 2 + ((rnd() * 2) | 0);
+        for (let gy = 0; gy < g; gy++) {
+          for (let gx = 0; gx < g; gx++) {
+            items.rects.push({ c: bc + gx * 0.45, r: br + gy * 0.45, s: 0.14 });
+          }
+        }
+      }
+      return items;
+    }
+
+    drawGroundTexture(ox, oy, cp, c0, r0, c1, r1) {
+      const ctx = this.ctx;
+      const P = this.palette;
+      ctx.save();
+      // 디더 패치 + 픽셀 클러스터
+      ctx.globalAlpha = this.isDark ? 0.1 : 0.09;
+      ctx.fillStyle = P.bound;
+      const rects = this.texture.rects;
+      for (let i = 0; i < rects.length; i++) {
+        const it = rects[i];
+        if (it.c < c0 - 1 || it.c > c1 + 1 || it.r < r0 - 1 || it.r > r1 + 1) continue;
+        const s = it.s * cp;
+        ctx.fillRect(ox + it.c * cp, oy + it.r * cp, s, s);
+      }
+      // 존 라벨 「01」…
+      ctx.globalAlpha = this.isDark ? 0.14 : 0.12;
+      ctx.font = '800 ' + Math.round(cp * 1.4) + 'px ' + MONO;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const labels = this.texture.labels;
+      for (let i = 0; i < labels.length; i++) {
+        const it = labels[i];
+        if (it.c < c0 - 3 || it.c > c1 + 3 || it.r < r0 - 2 || it.r > r1 + 2) continue;
+        ctx.fillText('「' + it.text + '」', ox + it.c * cp, oy + it.r * cp);
+      }
+      ctx.restore();
+    }
+
+    // ---------- 도트 캐시 + 점령 물결 + 클러스터 (영토 변경 시에만) ----------
     updateDots(now) {
       const board = this.board;
       if (board.rev === this.boardRev) return;
@@ -103,15 +228,41 @@
       const o = board.owner;
       const prev = this.prevOwner;
 
-      // 새로 점령된 셀 → 팝 시작 기록 / 잃은 셀 → 팝 취소
+      // 새로 점령된 셀 수집 (소유자별)
+      const gained = { 1: [], 2: [], 3: [] };
       for (let i = 0; i < o.length; i++) {
-        if (o[i] !== 0 && o[i] !== prev[i]) this.pops.set(i, now);
+        if (o[i] !== 0 && o[i] !== prev[i]) gained[o[i]].push(i);
         else if (o[i] === 0) this.pops.delete(i);
+      }
+
+      // 점령 물결: flood 중심에서 거리 × 18ms 지연으로 팝 시작
+      for (let id = 1; id <= 3; id++) {
+        const g = gained[id];
+        if (!g.length) continue;
+        let sc = 0;
+        let sr = 0;
+        for (let k = 0; k < g.length; k++) {
+          const c = g[k] % s;
+          sc += c;
+          sr += (g[k] - c) / s;
+        }
+        const cc = sc / g.length;
+        const cr = sr / g.length;
+        for (let k = 0; k < g.length; k++) {
+          const c = g[k] % s;
+          const r = (g[k] - c) / s;
+          this.pops.set(g[k], now + (Math.abs(c - cc) + Math.abs(r - cr)) * WAVE_MS);
+        }
+        // "+N" 타이포: 플레이어 점령 중심에 (스폰 시점 제외)
+        if (id === 1 && this.game.tickCount > 0) {
+          this.floats.push({ x: cc + 0.5, y: cr + 0.5, text: '+' + g.length, t0: now });
+        }
       }
       prev.set(o);
 
-      // 도트 반지름: 8방 이웃 중 같은 소유자 수에 비례
+      // 도트 반지름 + 소유자별 클러스터 중심
       const d = this.dotR;
+      const cl = { 1: { sx: 0, sy: 0, n: 0 }, 2: { sx: 0, sy: 0, n: 0 }, 3: { sx: 0, sy: 0, n: 0 } };
       for (let r = 0; r < s; r++) {
         for (let c = 0; c < s; c++) {
           const i = r * s + c;
@@ -130,7 +281,15 @@
             }
           }
           d[i] = DOT_MIN + (DOT_MAX - DOT_MIN) * (n / 8);
+          const k = cl[id];
+          k.sx += c;
+          k.sy += r;
+          k.n++;
         }
+      }
+      for (let id = 1; id <= 3; id++) {
+        const k = cl[id];
+        this.clusters[id] = k.n ? { x: k.sx / k.n + 0.5, y: k.sy / k.n + 0.5, count: k.n } : null;
       }
     }
 
@@ -148,57 +307,53 @@
       const now = performance.now();
       this.updateDots(now);
 
-      // --- 카메라 ---
+      // 카메라
       const pl = this.game.player;
       const pp = this.lerpPos(pl, tickT);
       const k = 1 - Math.exp(-6 * dt);
       this.cam.x += (pp.x + 0.5 - this.cam.x) * k;
       this.cam.y += (pp.y + 0.5 - this.cam.y) * k;
-
       const vw = w / cp;
       const vh = h / cp;
       this.cam.x = vw >= s ? s / 2 : Math.min(Math.max(this.cam.x, vw / 2), s - vw / 2);
       this.cam.y = vh >= s ? s / 2 : Math.min(Math.max(this.cam.y, vh / 2), s - vh / 2);
-
       const ox = w / 2 - this.cam.x * cp;
       const oy = h / 2 - this.cam.y * cp;
 
-      // --- 배경 (타일이 없는 영역의 폴백) ---
+      // 점령 임팩트 마이크로 줌 (≥20셀)
+      const zt = now - this.zoomT0;
+      const zoomed = zt >= 0 && zt < ZOOM_MS;
+      if (zoomed) {
+        const zk = 1 + 0.03 * Math.sin((Math.PI * zt) / ZOOM_MS);
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(zk, zk);
+        ctx.translate(-w / 2, -h / 2);
+      }
+
+      // 배경 + 지도 무대
       ctx.fillStyle = P.outside;
       ctx.fillRect(0, 0, w, h);
       ctx.fillStyle = P.bg;
       ctx.fillRect(ox, oy, s * cp, s * cp);
-
-      // --- 지도 타일 (로드 시 이미 저채도로 구워짐) + 테마 워시 ---
       if (this.game.tileMap) {
         this.game.tileMap.draw(ctx, ox, oy, cp, w, h);
         ctx.fillStyle = P.mapTint;
         ctx.fillRect(0, 0, w, h);
       }
 
-      // --- 보이는 셀 범위 ---
       const c0 = Math.max(0, Math.floor(-ox / cp));
       const r0 = Math.max(0, Math.floor(-oy / cp));
       const c1 = Math.min(s - 1, Math.ceil((w - ox) / cp));
       const r1 = Math.min(s - 1, Math.ceil((h - oy) / cp));
 
-      // --- 격자선 (은은하게, 토큰이 투명이면 안 보임) ---
-      ctx.strokeStyle = P.grid;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let c = c0; c <= c1 + 1; c++) {
-        const x = Math.round(ox + c * cp) + 0.5;
-        ctx.moveTo(x, oy + r0 * cp);
-        ctx.lineTo(x, oy + (r1 + 1) * cp);
-      }
-      for (let r = r0; r <= r1 + 1; r++) {
-        const y = Math.round(oy + r * cp) + 0.5;
-        ctx.moveTo(ox + c0 * cp, y);
-        ctx.lineTo(ox + (c1 + 1) * cp, y);
-      }
-      ctx.stroke();
+      // 바닥 텍스처 (밀도가 무드다)
+      this.drawGroundTexture(ox, oy, cp, c0, r0, c1, r1);
 
-      // --- 영토: 할프톤 도트 ---
+      // 다크 네온: 영토 클러스터 글로우 언더레이 (그라디언트 ≤3)
+      if (this.isDark) this.drawClusterGlow(ox, oy, cp, w, h);
+
+      // 영토 도트 매트릭스
       this.drawDots(ox, oy, cp, c0, r0, c1, r1, now);
 
       // 사망 연출 상태
@@ -206,18 +361,21 @@
       const deathElapsed = dying ? now - this.game.deathAt : 0;
       const fx = MW.CONFIG.DEATH_FX_MS;
 
-      // --- 꼬리: 캡슐 폴리라인 ---
+      // 꼬리 캡슐
       const entities = [this.game.player].concat(this.game.bots);
       for (let e = 0; e < entities.length; e++) {
         const ent = entities[e];
         if (!ent.alive || !ent.trail.length) continue;
         const isDyingPlayer = dying && ent === this.game.player;
-        if (isDyingPlayer) ctx.globalAlpha = Math.max(0, 1 - deathElapsed / fx); // 꼬리 소멸
+        if (isDyingPlayer) ctx.globalAlpha = Math.max(0, 1 - deathElapsed / fx);
         this.drawTrail(ent, ox, oy, cp, tickT);
         ctx.globalAlpha = 1;
       }
 
-      // --- 머리 스티커 + 아바타 마커 ---
+      // 봇 처치 연출 (순차 소멸 + 넘어짐 + 파편)
+      this.drawBotFx(now, ox, oy, cp);
+
+      // 머리 스티커 + 아바타 마커
       for (let e = 0; e < entities.length; e++) {
         const ent = entities[e];
         if (!ent.alive) continue;
@@ -225,25 +383,64 @@
         const hx = ox + pos.x * cp;
         const hy = oy + pos.y * cp;
         const isDyingPlayer = dying && ent === this.game.player;
-
-        // 머리: 라운드 사각 스티커 + 흰 테두리 (사망 중엔 점멸)
         if (isDyingPlayer) {
           ctx.globalAlpha = Math.floor(deathElapsed / 100) % 2 === 0 ? 0.9 : 0.15;
         }
         this.drawHeadSticker(ent, hx, hy, cp);
         ctx.globalAlpha = 1;
-
-        // 마커 (사망 중엔 넘어지며 페이드)
         this.drawMarker(ent, hx + cp / 2, hy, now, isDyingPlayer ? deathElapsed / fx : -1);
       }
 
-      // --- 게임판 경계 ---
+      // 꼬리 끝 스파클 — 머리 스티커·마커보다 위 레이어 (가려짐 방지)
+      for (let e = 0; e < entities.length; e++) {
+        const ent = entities[e];
+        if (!ent.alive || !ent.trail.length) continue;
+        if (dying && ent === this.game.player) {
+          ctx.globalAlpha = Math.max(0, 1 - deathElapsed / fx);
+        }
+        this.drawSparkle(ent, ox, oy, cp, tickT, now);
+        ctx.globalAlpha = 1;
+      }
+
+      // "+N" 플로트 타이포
+      this.drawFloats(now, ox, oy, cp);
+
+      // 대형 점유율 % (그래픽 요소)
+      this.drawBigPct(w, h);
+
+      // 게임판 경계
       ctx.strokeStyle = P.bound;
       ctx.lineWidth = 2;
       ctx.strokeRect(ox + 1, oy + 1, s * cp - 2, s * cp - 2);
+
+      if (zoomed) ctx.restore();
+
+      // 위험 비네트 (자기 꼬리 근접 — 줌/월드 변환 밖, 화면 고정)
+      this.drawDangerVignette(w, h, now);
     }
 
-    // ---------- 영토 도트 ----------
+    // ---------- 다크 네온 클러스터 글로우 ----------
+    drawClusterGlow(ox, oy, cp, w, h) {
+      const ctx = this.ctx;
+      const P = this.palette;
+      for (let id = 1; id <= 3; id++) {
+        const cl = this.clusters[id];
+        if (!cl) continue;
+        const gx = ox + cl.x * cp;
+        const gy = oy + cl.y * cp;
+        const rr = Math.min(Math.sqrt(cl.count) * cp * 0.9, Math.max(w, h));
+        if (gx + rr < 0 || gx - rr > w || gy + rr < 0 || gy - rr > h) continue;
+        const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, rr);
+        g.addColorStop(0, P.ent[id].h);
+        g.addColorStop(1, 'transparent');
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = g;
+        ctx.fillRect(gx - rr, gy - rr, rr * 2, rr * 2);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // ---------- 영토 도트 매트릭스 ----------
     drawDots(ox, oy, cp, c0, r0, c1, r1, now) {
       const ctx = this.ctx;
       const P = this.palette;
@@ -253,15 +450,14 @@
       const d = this.dotR;
       const half = cp / 2;
 
-      // 팝이 끝난 항목 정리 (매 프레임 소량)
       if (this.pops.size) {
         this.pops.forEach((t0, i) => {
           if (now - t0 >= POP_MS) this.pops.delete(i);
         });
       }
 
-      // 1) 팝 중이 아닌 도트: 소유자별로 경로를 모아 한 번에 채움 (fillStyle 전환 최소화)
       for (let id = 1; id <= 3; id++) {
+        const ringCells = []; // 링 변형 (~15%, 해시 기반)
         ctx.fillStyle = P.ent[id].t;
         ctx.beginPath();
         for (let r = r0; r <= r1; r++) {
@@ -271,36 +467,84 @@
             if (o[i] !== id || !d[i] || this.pops.has(i)) continue;
             const cx = ox + c * cp + half;
             const cy = oy + r * cp + half;
-            const rad = d[i] * cp;
-            ctx.moveTo(cx + rad, cy);
-            ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+            // M1 도트 숨쉬기
+            const breathe = 1 + 0.04 * Math.sin(now / 900 + (c + r) * 0.7);
+            const rad = d[i] * cp * breathe;
+            if (d[i] <= EDGE_CUT) {
+              // 가장자리(이웃 ≤3): 2×2 서브도트 디더링
+              const sub = Math.max(0.9, rad * 0.5);
+              const off = cp * 0.22;
+              ctx.moveTo(cx - off + sub, cy - off);
+              ctx.arc(cx - off, cy - off, sub, 0, Math.PI * 2);
+              ctx.moveTo(cx + off + sub, cy - off);
+              ctx.arc(cx + off, cy - off, sub, 0, Math.PI * 2);
+              ctx.moveTo(cx - off + sub, cy + off);
+              ctx.arc(cx - off, cy + off, sub, 0, Math.PI * 2);
+              ctx.moveTo(cx + off + sub, cy + off);
+              ctx.arc(cx + off, cy + off, sub, 0, Math.PI * 2);
+            } else if (((i * 2654435761) >>> 0) % 100 < 15) {
+              ringCells.push(cx, cy, rad); // 링 변형은 스트로크 패스로
+            } else {
+              ctx.moveTo(cx + rad, cy);
+              ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+            }
           }
         }
         ctx.fill();
+
+        if (ringCells.length) {
+          ctx.strokeStyle = P.ent[id].t;
+          ctx.lineWidth = Math.max(1.5, cp * 0.09);
+          ctx.beginPath();
+          for (let k = 0; k < ringCells.length; k += 3) {
+            const cx = ringCells[k];
+            const cy = ringCells[k + 1];
+            const rad = ringCells[k + 2] * 0.82;
+            ctx.moveTo(cx + rad, cy);
+            ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+          }
+          ctx.stroke();
+        }
       }
 
-      // 2) 팝 중인 도트: 개별로 스케일 인 (0 → 목표, ease-out) — 초반엔 팝 색으로 반짝
+      // 팝 중인 도트: 물결 지연 + 스케일 인 (초반 팝 색 플래시)
       if (this.pops.size) {
         this.pops.forEach((t0, i) => {
+          const el = now - t0;
+          if (el <= 0) return; // 물결이 아직 안 닿음
           const c = i % s;
           const r = (i - c) / s;
           if (c < c0 || c > c1 || r < r0 || r > r1) return;
           if (!d[i]) return;
-          const t = Math.min(1, (now - t0) / POP_MS);
+          const t = Math.min(1, el / POP_MS);
           const ease = 1 - Math.pow(1 - t, 3);
-          const cx = ox + c * cp + half;
-          const cy = oy + r * cp + half;
           const rad = d[i] * cp * ease;
           if (rad <= 0.2) return;
-          ctx.fillStyle = t < 0.4 ? P.pop : P.ent[o[i]].t;
+          // 플래시는 소유자별: 플레이어 = --pop-color, 봇 = 자기 head 색 + 흰 믹스
+          const flash = t < 0.4;
+          const id = o[i];
+          ctx.fillStyle = flash
+            ? (id === 1 ? P.pop : P.ent[id].h)
+            : P.ent[id].t;
+          const px = ox + c * cp + half;
+          const py = oy + r * cp + half;
           ctx.beginPath();
-          ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+          ctx.arc(px, py, rad, 0, Math.PI * 2);
           ctx.fill();
+          if (flash && id !== 1) {
+            // 흰색 50% 믹스 느낌의 밝기 플래시 (점점 소멸)
+            ctx.globalAlpha = 0.5 * (1 - t / 0.4);
+            ctx.fillStyle = P.white;
+            ctx.beginPath();
+            ctx.arc(px, py, rad, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
         });
       }
     }
 
-    // ---------- 꼬리 캡슐 ----------
+    // ---------- 꼬리 캡슐 (v2: 컬러 0.48, 라이트 그림자 / 다크 글로우) ----------
     drawTrail(ent, ox, oy, cp, tickT) {
       const ctx = this.ctx;
       const P = this.palette;
@@ -322,36 +566,136 @@
           if (k === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
-        // 끝점 = 보간된 머리 위치 (캡슐이 머리를 따라 미끄러진다)
         const pos = this.lerpPos(ent, tickT);
         ctx.lineTo(ox + pos.x * cp + half, oy + pos.y * cp + half);
       };
 
-      // 2패스: 흰 외곽선(굵게) → 소유자 색(가늘게)
+      // 1패스: 흰 외곽선 (라이트에선 얕은 그림자)
+      ctx.save();
+      if (!this.isDark) {
+        ctx.shadowColor = 'rgba(0,0,0,0.18)'; // 그림자 — 팔레트 색 아님
+        ctx.shadowBlur = 6;
+        ctx.shadowOffsetY = 2;
+      }
       buildPath();
       ctx.strokeStyle = P.white;
       ctx.lineWidth = cp * 0.62;
       ctx.stroke();
+      ctx.restore();
 
+      // 2패스: 소유자 색 (다크에선 네온 글로우)
+      ctx.save();
+      if (this.isDark) {
+        ctx.shadowColor = P.ent[ent.id].h;
+        ctx.shadowBlur = 10;
+      }
       buildPath();
       ctx.strokeStyle = P.ent[ent.id].tr;
-      ctx.lineWidth = cp * 0.34;
+      ctx.lineWidth = cp * 0.48;
       ctx.stroke();
+      ctx.restore();
+    }
+
+    // M3: 꼬리 끝 흰 십자 스파클
+    drawSparkle(ent, ox, oy, cp, tickT, now) {
+      const ctx = this.ctx;
+      const P = this.palette;
+      const pos = this.lerpPos(ent, tickT);
+      const sx = ox + pos.x * cp + cp / 2;
+      const sy = oy + pos.y * cp + cp / 2;
+      const tw = Math.sin(now / 120 + ent.id * 2) * 0.5 + 0.5;
+      const size = cp * (0.3 + 0.22 * tw);
+      ctx.save();
+      ctx.globalAlpha *= 0.5 + 0.5 * tw;
+      if (this.isDark) {
+        ctx.shadowColor = P.ent[ent.id].h;
+        ctx.shadowBlur = 8;
+      }
+      ctx.strokeStyle = P.white;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx - size, sy);
+      ctx.lineTo(sx + size, sy);
+      ctx.moveTo(sx, sy - size);
+      ctx.lineTo(sx, sy + size);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // M4: 봇 처치 — 끊긴 지점부터 셀당 20ms 순차 소멸 + 넘어진 마커 + 파편
+    drawBotFx(now, ox, oy, cp) {
+      const ctx = this.ctx;
+      const P = this.palette;
+      const s = this.board.size;
+      const half = cp / 2;
+
+      for (let f = this.botFx.length - 1; f >= 0; f--) {
+        const fx = this.botFx[f];
+        const el = now - fx.t0;
+        const trail = fx.trail;
+        const maxDist = Math.max(fx.cutK, trail.length - 1 - fx.cutK);
+        const total = Math.max(maxDist * 20 + 200, 700);
+        if (el > total) {
+          this.botFx.splice(f, 1);
+          continue;
+        }
+
+        // 꼬리 순차 소멸 (도트로 축소·페이드)
+        ctx.fillStyle = P.ent[fx.id].tr;
+        for (let k2 = 0; k2 < trail.length; k2++) {
+          const st = Math.abs(k2 - fx.cutK) * 20;
+          const ft = (el - st) / 160;
+          if (ft >= 1) continue;
+          const i = trail[k2];
+          const c = i % s;
+          const r = (i - c) / s;
+          const shrink = ft <= 0 ? 1 : 1 - ft;
+          ctx.globalAlpha = shrink;
+          ctx.beginPath();
+          ctx.arc(ox + c * cp + half, oy + r * cp + half, cp * 0.24 * shrink, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // 넘어지는 마커 (600ms)
+        if (el < 600) {
+          const fake = { id: fx.id, c: fx.head.c, r: fx.head.r, pc: fx.head.c, pr: fx.head.r };
+          this.drawMarker(fake, ox + fx.head.c * cp + half, oy + fx.head.r * cp, now, el / 600);
+        }
+
+        // 파편 도트 (0.5s)
+        const pt = el / 500;
+        if (pt < 1) {
+          const hx = ox + fx.head.c * cp + half;
+          const hy = oy + fx.head.r * cp + half;
+          ctx.fillStyle = P.ent[fx.id].h;
+          ctx.globalAlpha = 1 - pt;
+          for (let k2 = 0; k2 < fx.debris.length; k2++) {
+            const db = fx.debris[k2];
+            const dx = hx + Math.cos(db.a) * db.v * pt;
+            const dy = hy + Math.sin(db.a) * db.v * pt + 42 * pt * pt;
+            ctx.beginPath();
+            ctx.arc(dx, dy, 3.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+        }
+      }
     }
 
     // ---------- 머리 스티커 ----------
     drawHeadSticker(ent, x, y, cp) {
       const ctx = this.ctx;
       const P = this.palette;
-      const glow = this.isDark && ent.id === 1; // 다크: 플레이어만 라임 글로우
+      const glow = this.isDark && ent.id === 1;
 
       ctx.save();
       if (glow) {
         ctx.shadowColor = P.ent[1].h;
         ctx.shadowBlur = 12;
       } else {
-        // 얕은 스티커 그림자 (색 아님 — 투명 검정)
-        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+        ctx.shadowColor = 'rgba(0,0,0,0.25)'; // 얕은 스티커 그림자
         ctx.shadowBlur = 3;
         ctx.shadowOffsetY = 1;
       }
@@ -360,7 +704,6 @@
       ctx.fill();
       ctx.restore();
 
-      // 흰 스티커 테두리
       ctx.strokeStyle = P.white;
       ctx.lineWidth = 2.5;
       this.roundRectPath(x + 2, y + 2, cp - 4, cp - 4, 6);
@@ -374,8 +717,7 @@
       else ctx.rect(x, y, w, h);
     }
 
-    // ---------- 부루마블 아바타 마커 ----------
-    // deathT: -1 = 정상, 0~1 = 사망 진행도 (넘어지며 페이드)
+    // ---------- 아바타 마커 ----------
     drawMarker(ent, headCX, headTopY, now, deathT) {
       const ctx = this.ctx;
       const P = this.palette;
@@ -383,16 +725,15 @@
       const R = S / 2;
       const tailLen = 12;
 
-      // 이동 중이면 살짝 bob
+      // M6: 이동 중엔 통통, 정지 시에도 1px/1.6s 느린 호흡
       const moving = ent.pc !== ent.c || ent.pr !== ent.r;
-      const bob = moving ? Math.sin(now / 110) * 2.5 : 0;
+      const bob = moving ? Math.sin(now / 110) * 2.5 : Math.sin(now / 255) * 1;
 
       const cx = headCX;
       const cy = headTopY - tailLen - R + bob;
 
       ctx.save();
       if (deathT >= 0) {
-        // 죽음: 마커가 훽 넘어지며 사라진다
         ctx.globalAlpha = Math.max(0, 1 - deathT);
         ctx.translate(cx, cy);
         ctx.rotate((Math.PI / 2) * Math.min(1, deathT * 1.4));
@@ -401,7 +742,7 @@
 
       const frame = P.ent[ent.id].frame;
 
-      // 말풍선 꼬리 (아래로)
+      // 말풍선 꼬리
       ctx.fillStyle = frame;
       ctx.beginPath();
       ctx.moveTo(cx - 5, cy + R * 0.6);
@@ -410,7 +751,7 @@
       ctx.closePath();
       ctx.fill();
 
-      // 꽃잎 스티커 프레임: 원 10개 + 중심 원 (다크에선 플레이어만 글로우)
+      // 꽃잎 프레임 (다크: 플레이어 라임 글로우)
       const glow = this.isDark && ent.id === 1;
       ctx.save();
       if (glow) {
@@ -431,21 +772,19 @@
       ctx.fill();
       ctx.restore();
 
-      // 흰 링
+      // 흰 링 + 얼굴
       ctx.fillStyle = P.white;
       ctx.beginPath();
       ctx.arc(cx, cy, R * 0.7, 0, Math.PI * 2);
       ctx.fill();
-
-      // 얼굴: 차콜 원 + 픽셀 이목구비
       ctx.fillStyle = P.face;
       ctx.beginPath();
       ctx.arc(cx, cy, R * 0.58, 0, Math.PI * 2);
       ctx.fill();
       this.drawFace(ent.id, cx, cy, R);
 
-      // 이름 라벨 필
-      this.drawLabel(NAMES[ent.id] || '?', cx, cy + R + 6, S);
+      // 이름 라벨 필 (토큰: 라이트 차콜+라임 / 다크 라임+차콜)
+      this.drawLabel(this.names[ent.id] || '?', cx, cy + R + 6, S);
 
       ctx.restore();
     }
@@ -453,11 +792,10 @@
     drawFace(id, cx, cy, R) {
       const ctx = this.ctx;
       const P = this.palette;
-      const f = R / 17; // 플레이어 기준 스케일
+      const f = R / 17;
       ctx.fillStyle = P.white;
 
       if (id === 3) {
-        // MOMO: 동그란 눈 + 동그란 입
         ctx.beginPath();
         ctx.arc(cx - 4.5 * f, cy - 2.5 * f, 2 * f, 0, Math.PI * 2);
         ctx.arc(cx + 4.5 * f, cy - 2.5 * f, 2 * f, 0, Math.PI * 2);
@@ -468,13 +806,11 @@
         return;
       }
 
-      // ME / PIKO: 사각 픽셀 눈
       const ew = 3.5 * f;
       ctx.fillRect(cx - 6 * f, cy - 4.5 * f, ew, ew);
       ctx.fillRect(cx + 2.5 * f, cy - 4.5 * f, ew, ew);
 
       if (id === 1) {
-        // ME: 웃는 입 (라운드 스트로크)
         ctx.strokeStyle = P.white;
         ctx.lineWidth = 1.8 * f;
         ctx.lineCap = 'round';
@@ -482,7 +818,6 @@
         ctx.arc(cx, cy + 1.5 * f, 4.5 * f, Math.PI * 0.18, Math.PI * 0.82);
         ctx.stroke();
       } else {
-        // PIKO: 일자 입
         ctx.fillRect(cx - 3.5 * f, cy + 3 * f, 7 * f, 1.8 * f);
       }
     }
@@ -490,22 +825,21 @@
     drawLabel(name, cx, cy, S) {
       const ctx = this.ctx;
       const P = this.palette;
-      const fontPx = Math.max(7, Math.round(S * 0.26));
+      const fontPx = Math.max(8, Math.round(S * 0.22));
 
       ctx.save();
       try {
-        ctx.letterSpacing = '1px'; // 미지원 브라우저는 무시
+        ctx.letterSpacing = '1px';
       } catch (e) { /* noop */ }
-      ctx.font = '700 ' + fontPx + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.font = '800 ' + fontPx + 'px ' + MONO;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       const tw = ctx.measureText(name).width;
-      const pw = tw + 10;
-      const ph = fontPx + 6;
+      const pw = tw + 12;
+      const ph = fontPx + 7;
 
-      // 차콜 스티커 필 + 흰 테두리
-      ctx.fillStyle = P.face;
+      ctx.fillStyle = P.labelBg;
       this.roundRectPath(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
       ctx.fill();
       ctx.strokeStyle = P.white;
@@ -513,8 +847,97 @@
       this.roundRectPath(cx - pw / 2, cy - ph / 2, pw, ph, ph / 2);
       ctx.stroke();
 
-      ctx.fillStyle = P.white;
+      ctx.fillStyle = P.labelFg;
       ctx.fillText(name, cx, cy + 0.5);
+      ctx.restore();
+    }
+
+    // ---------- "+N" 플로트 타이포 (1초) ----------
+    drawFloats(now, ox, oy, cp) {
+      if (!this.floats.length) return;
+      const ctx = this.ctx;
+      const P = this.palette;
+      ctx.save();
+      ctx.font = '900 ' + Math.round(cp * 1.15) + 'px ' + MONO;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      for (let i = this.floats.length - 1; i >= 0; i--) {
+        const fl = this.floats[i];
+        const t = (now - fl.t0) / FLOAT_MS;
+        if (t >= 1) {
+          this.floats.splice(i, 1);
+          continue;
+        }
+        const x = ox + fl.x * cp;
+        // 아바타 라벨과 겹치지 않게 시작점을 위로 cp*2 띄운다
+        const y = oy + fl.y * cp - cp * 2 - t * 34;
+        ctx.globalAlpha = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+        ctx.strokeStyle = P.white;
+        ctx.lineWidth = 4;
+        ctx.strokeText(fl.text, x, y);
+        ctx.fillStyle = P.ent[1].h;
+        ctx.fillText(fl.text, x, y);
+      }
+      ctx.restore();
+    }
+
+    // ---------- 대형 점유율 % (캔버스 그래픽 타이포) ----------
+    drawBigPct(w, h) {
+      const ctx = this.ctx;
+      const P = this.palette;
+      const s = this.board.size;
+      const pct = ((this.game.playerCells || 0) / (s * s)) * 100;
+      const text = pct.toFixed(0) + '%';
+      ctx.save();
+      try {
+        ctx.letterSpacing = '2px';
+      } catch (e) { /* noop */ }
+      ctx.font = '900 64px ' + MONO;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'alphabetic';
+      ctx.globalAlpha = this.isDark ? 0.2 : 0.15;
+      ctx.strokeStyle = P.white; // 스티커 느낌 외곽선
+      ctx.lineWidth = 4;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(text, w - 14, h - 34);
+      ctx.fillStyle = P.ent[1].h;
+      ctx.fillText(text, w - 14, h - 34);
+      ctx.restore();
+    }
+
+    // ---------- M5: 위험 비네트 (자기 꼬리 근접) ----------
+    drawDangerVignette(w, h, now) {
+      const pl = this.game.player;
+      if (this.game.state !== 'playing' || !pl.alive) return;
+      const trail = pl.trail;
+      if (trail.length < 5) return;
+
+      // 머리 바로 뒤 3칸은 항상 붙어 있으므로 제외하고 최소 맨해튼 거리
+      const s = this.board.size;
+      let min = 99;
+      for (let k = 0; k < trail.length - 3; k++) {
+        const i = trail[k];
+        const c = i % s;
+        const r = (i - c) / s;
+        const d = Math.abs(c - pl.c) + Math.abs(r - pl.r);
+        if (d < min) min = d;
+        if (min === 0) break;
+      }
+      if (min > 2) return;
+
+      const ctx = this.ctx;
+      const pulse = 0.25 * (0.5 + 0.5 * Math.sin(now / 250));
+      const g = ctx.createRadialGradient(
+        w / 2, h / 2, Math.min(w, h) * 0.38,
+        w / 2, h / 2, Math.max(w, h) * 0.72
+      );
+      g.addColorStop(0, 'transparent');
+      g.addColorStop(1, this.palette.danger);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, w, h);
       ctx.restore();
     }
   }

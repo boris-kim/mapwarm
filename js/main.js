@@ -240,7 +240,7 @@
               this.cuts++; // 내가 직접 끊은 꼬리만 카운트
               this.cutKills[eb.id] = (this.cutKills[eb.id] || 0) + 1; // 카드용 킬 기록
             }
-            this.killBot(eb);
+            this.killBot(eb, i); // i = 끊긴 꼬리 지점 (순차 소멸 연출 시작점)
           }
         }
       }
@@ -284,9 +284,12 @@
         this.chipTimer = setTimeout(() => chip.classList.remove('pop'), 320);
       }
       if (gained >= 8) this.toast('+' + gained + ' 땅을 먹었다!');
+      if (gained >= 20 && this.renderer) this.renderer.zoomPulse(); // M7 임팩트 줌
     }
 
-    killBot(bot) {
+    killBot(bot, cutCellIdx) {
+      // 연출용 스냅샷은 die()가 꼬리를 지우기 전에
+      if (this.renderer) this.renderer.addBotDeathFx(bot, cutCellIdx);
       bot.die();
       bot.respawnTimer = C.BOT_RESPAWN_TICKS;
     }
@@ -366,7 +369,11 @@
     updateOccupancy() {
       this.playerCells = this.board.count(MW.ID.PLAYER);
       const pct = (this.playerCells / (C.GRID * C.GRID)) * 100;
-      this.$occ.textContent = pct.toFixed(1) + '%';
+      // M8: 숫자 롤링 — 값이 바뀔 때만 0.3s 카운트업
+      if (pct !== this._pctTarget) {
+        this._pctTarget = pct;
+        this.rollOccupancy(pct);
+      }
       if (pct > this.best) {
         this.best = pct;
         try {
@@ -374,6 +381,21 @@
         } catch (e) { /* 저장 불가 환경 무시 */ }
         this.$best.textContent = pct.toFixed(1) + '%';
       }
+    }
+
+    // M8: 점유율 이전 → 새 값 0.3s 카운트업
+    rollOccupancy(to) {
+      const from = this._pctShown != null ? this._pctShown : to;
+      cancelAnimationFrame(this._rollRaf);
+      const t0 = performance.now();
+      const step = (n) => {
+        const t = Math.min(1, (n - t0) / 300);
+        const v = from + (to - from) * t;
+        this._pctShown = v;
+        this.$occ.textContent = v.toFixed(1) + '%';
+        if (t < 1) this._rollRaf = requestAnimationFrame(step);
+      };
+      this._rollRaf = requestAnimationFrame(step);
     }
 
     // 남은 시간 전광판 (mm:ss) — 30초 이하면 핑크 경고

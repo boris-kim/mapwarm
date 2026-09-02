@@ -266,6 +266,8 @@ body {
   position: absolute;
   width: 104px;
   height: 104px;
+  opacity: 1;
+  transition: opacity 0.15s ease;
   border-radius: 50%;
   border: var(--sticker-border-w) solid var(--sticker-border);
   background: var(--joystick-bg);
@@ -273,6 +275,11 @@ body {
   transform: translate(-50%, -50%);
   pointer-events: none;
   z-index: 5;
+}
+
+/* v2: 미조작 시 좌하단에 상주하는 힌트 상태 (터치하면 그 자리로 점프) */
+.joystick.hint {
+  opacity: 0.5;
 }
 
 /* 스틱: 라이트 = 차콜 / 다크 = 라임 + 글로우 (토큰이 테마별로 정의) */

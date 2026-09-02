@@ -66,6 +66,34 @@
       this.zoom = 18;
       this.geo = null;
       this.onLoad = null; // 타일 1장 로드 완료 시 알림 (결과 카드 재렌더 등)
+
+      // v2: 테마별 굽기 — 다크는 어두운 저대비. 전환 시 원본에서 재굽기(재요청 없음)
+      this.dark = false;
+      if (typeof document !== 'undefined') {
+        this.dark = this.detectDark();
+        document.addEventListener('mw:themechange', () => {
+          const d = this.detectDark();
+          if (d !== this.dark) {
+            this.dark = d;
+            this.rebake();
+          }
+        });
+      }
+    }
+
+    detectDark() {
+      const t = document.documentElement.getAttribute('data-theme');
+      return (
+        t === 'dark' ||
+        (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      );
+    }
+
+    rebake() {
+      this.cache.forEach((t) => {
+        if (t.status === 'ok' && t.raw) t.img = this.desaturate(t.raw);
+      });
+      if (this.onLoad) this.onLoad(); // 결과 카드 등도 새 굽기 반영
     }
 
     setGeo(geo) {
@@ -143,6 +171,7 @@
         img.crossOrigin = 'anonymous';
         img.onload = () => {
           // 로드 시 1회만 저채도로 구워 캐시 (매 프레임 필터 금지 — 성능)
+          job.t.raw = img; // 테마 전환 시 재굽기용 원본
           job.t.img = this.desaturate(img);
           job.t.status = 'ok';
           this.inflight--;
@@ -158,29 +187,38 @@
       }
     }
 
-    /** 타일 채도를 강하게 뺀다 (지도는 무대, 캔디 영토가 주인공 — §6.5) */
+    /** 타일을 무대로 굽는다 (§v2): 저채도 + 저대비, 라이트는 밝게 / 다크는 어둡게.
+        라벨·아이콘이 뭉개져 배경이 되어야 캔디 영토가 주인공이 된다 */
     desaturate(img) {
+      // [채도, 대비, 밝기]
+      const sat = this.dark ? 0.12 : 0.15;
+      const con = this.dark ? 0.5 : 0.55;
+      const bri = this.dark ? 0.45 : 1.15;
       try {
         const c = document.createElement('canvas');
         c.width = img.width;
         c.height = img.height;
         const x = c.getContext('2d');
 
-        x.filter = 'saturate(0.15)';
+        x.filter =
+          'saturate(' + sat + ') contrast(' + con + ') brightness(' + bri + ')';
         if (x.filter && x.filter !== 'none') {
           x.drawImage(img, 0, 0);
           return c;
         }
 
-        // ctx.filter 미지원(구형 Safari 등) → 수동 채도 감소 (타일당 1회)
+        // ctx.filter 미지원(구형 Safari 등) → 수동 보정 (타일당 1회)
         x.drawImage(img, 0, 0);
         const data = x.getImageData(0, 0, c.width, c.height);
         const p = data.data;
         for (let i = 0; i < p.length; i += 4) {
           const g = 0.2126 * p[i] + 0.7152 * p[i + 1] + 0.0722 * p[i + 2];
-          p[i] = g + (p[i] - g) * 0.15;
-          p[i + 1] = g + (p[i + 1] - g) * 0.15;
-          p[i + 2] = g + (p[i + 2] - g) * 0.15;
+          for (let k = 0; k < 3; k++) {
+            let v = g + (p[i + k] - g) * sat; // 채도
+            v = (v - 128) * con + 128;        // 대비
+            v *= bri;                          // 밝기
+            p[i + k] = v < 0 ? 0 : v > 255 ? 255 : v;
+          }
         }
         x.putImageData(data, 0, 0);
         return c;

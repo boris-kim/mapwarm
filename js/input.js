@@ -41,6 +41,21 @@
       areaEl.addEventListener('pointerup', (e) => this.onUp(e));
       areaEl.addEventListener('pointercancel', (e) => this.onUp(e));
       areaEl.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      // v2: 미조작 시 좌하단에 50% 알파 힌트 조이스틱 상주
+      window.addEventListener('resize', () => {
+        if (this.pointerId === null) this.showHint();
+      });
+      this.showHint();
+    }
+
+    showHint() {
+      if (!this.enabled) return;
+      this.joy.classList.add('hint');
+      this.joy.classList.remove('hidden');
+      this.joy.style.left = '86px';
+      this.joy.style.top = (this.area.clientHeight || 600) - 130 + 'px';
+      this.setStick(0, 0);
     }
 
     onDown(e) {
@@ -58,6 +73,7 @@
       this.joy.style.left = this.origin.x + 'px';
       this.joy.style.top = this.origin.y + 'px';
       this.joy.classList.remove('hidden');
+      this.joy.classList.remove('hint'); // 터치한 자리로 점프 + 풀 알파
       this.setStick(0, 0);
     }
 
@@ -91,7 +107,7 @@
       this.pointerId = null;
       this.origin = null;
       this.joyDir = null;
-      this.joy.classList.add('hidden');
+      this.showHint(); // 놓으면 좌하단 힌트 위치로 복귀
     }
 
     setStick(dx, dy) {
@@ -128,6 +144,8 @@
         this.pointerId = null;
         this.origin = null;
         this.joy.classList.add('hidden');
+      } else {
+        this.showHint();
       }
     }
   }
