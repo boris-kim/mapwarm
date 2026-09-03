@@ -57,6 +57,10 @@
       this.botFx = [];  // 봇 처치 연출 {id,trail,cutK,head,debris,t0}
       this.zoomT0 = -1e9;
 
+      // 예상 점령 게이지: 숫자 스케일 팝 추적
+      this._projCount = -1;
+      this._projPopT0 = -1e9;
+
       // 이름 라벨 (닉네임: localStorage → 없으면 MINJAE)
       let nick = 'MINJAE';
       try {
@@ -368,6 +372,9 @@
       // 다크 네온: 영토 클러스터 글로우 언더레이 (그라디언트 ≤3)
       if (this.isDark) this.drawClusterGlow(ox, oy, cp, w, h);
 
+      // 예상 점령 유령 미리보기 (실제 도트 아래, 반투명 펄스)
+      this.drawProjectedGhost(ox, oy, cp, c0, r0, c1, r1, now);
+
       // 영토 도트 매트릭스
       this.drawDots(ox, oy, cp, c0, r0, c1, r1, now);
 
@@ -420,6 +427,9 @@
       // "+N" 플로트 타이포
       this.drawFloats(now, ox, oy, cp);
 
+      // 예상 점령 숫자 ("+180", 오르면 스케일 팝, 임계 넘으면 "지금 닫아!")
+      this.drawProjectedNumber(ox, oy, cp, tickT, now);
+
       // 대형 점유율 % (그래픽 요소)
       this.drawBigPct(w, h);
 
@@ -453,6 +463,96 @@
         ctx.fillRect(gx - rr, gy - rr, rr * 2, rr * 2);
         ctx.globalAlpha = 1;
       }
+    }
+
+    // ---------- 예상 점령 유령 미리보기 ----------
+    // "지금 닫으면 여기까지" — 새로 먹을 셀을 내 색 반투명 사각형 + 펄스로.
+    // 실제 도트보다 옅게, 성긴 사각형이라 저비용 (게임 로직 캐시 game.projected 사용).
+    drawProjectedGhost(ox, oy, cp, c0, r0, c1, r1, now) {
+      const proj = this.game.projected;
+      if (!proj || !proj.count) return;
+      const ctx = this.ctx;
+      const P = this.palette;
+      const s = this.board.size;
+      const cells = proj.cells;
+
+      // 펄스 알파 (유령은 도트보다 확실히 옅게)
+      const pulse = 0.10 + 0.06 * (0.5 + 0.5 * Math.sin(now / 380));
+      const urge = proj.count >= MW.CONFIG.GAUGE_URGE_CELLS;
+      ctx.save();
+      ctx.globalAlpha = urge ? pulse + 0.05 : pulse;
+      ctx.fillStyle = urge ? P.ent[1].h : P.ent[1].t; // 임계 넘으면 더 쨍한 라임
+      const inset = cp * 0.12;
+      const sz = cp - inset * 2;
+      for (let k = 0; k < cells.length; k++) {
+        const i = cells[k];
+        const c = i % s;
+        const r = (i - c) / s;
+        if (c < c0 || c > c1 || r < r0 || r > r1) continue;
+        ctx.fillRect(ox + c * cp + inset, oy + r * cp + inset, sz, sz);
+      }
+      ctx.restore();
+    }
+
+    // ---------- 예상 점령 숫자 ("+N") ----------
+    drawProjectedNumber(ox, oy, cp, tickT, now) {
+      const proj = this.game.projected;
+      if (!proj || !proj.count) {
+        this._projCount = -1;
+        return;
+      }
+      const ctx = this.ctx;
+      const P = this.palette;
+      const urge = proj.count >= MW.CONFIG.GAUGE_URGE_CELLS;
+
+      // 값이 오르면 스케일 팝
+      if (proj.count > this._projCount) this._projPopT0 = now;
+      this._projCount = proj.count;
+      const pt = Math.min(1, (now - this._projPopT0) / 220);
+      const pop = 1 + 0.35 * (1 - pt) * (pt > 0 ? 1 : 0);
+
+      // 예정 영역 중심 위쪽에 표시 (없으면 머리 근처)
+      let bx = ox + proj.cx * cp;
+      let by = oy + proj.cy * cp - cp * 1.6;
+      const pl = this.game.player;
+      if (!proj.cx && !proj.cy) {
+        const hp = this.lerpPos(pl, tickT);
+        bx = ox + (hp.x + 0.5) * cp;
+        by = oy + hp.y * cp - cp * 1.8;
+      }
+
+      const text = '+' + proj.count;
+      const base = Math.max(20, Math.round(cp * 1.0));
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.scale(pop, pop);
+      try { ctx.letterSpacing = '1px'; } catch (e) { /* noop */ }
+      ctx.font = '900 ' + base + 'px ' + MONO;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = P.white;
+      ctx.lineWidth = 5;
+      ctx.strokeText(text, 0, 0);
+      ctx.fillStyle = P.ent[1].h;
+      ctx.fillText(text, 0, 0);
+
+      if (urge) {
+        // "지금 닫아!" 힌트 (라임 강조 필)
+        const hint = '지금 닫아!';
+        const hf = Math.max(11, Math.round(cp * 0.5));
+        ctx.font = '800 ' + hf + 'px ' + MONO;
+        const tw = ctx.measureText(hint).width;
+        const pw = tw + 16;
+        const ph = hf + 10;
+        const hy = base * 0.72 + ph / 2;
+        this.roundRectPath(-pw / 2, hy - ph / 2, pw, ph, ph / 2);
+        ctx.fillStyle = P.ent[1].h;
+        ctx.fill();
+        ctx.fillStyle = P.face;
+        ctx.fillText(hint, 0, hy);
+      }
+      ctx.restore();
     }
 
     // ---------- 영토 도트 매트릭스 ----------

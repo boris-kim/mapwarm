@@ -4,6 +4,75 @@
 (function () {
   'use strict';
 
+  window.MW = window.MW || {};
+
+  /**
+   * 예상 점령 추정 (경량 미리보기 — 실제 판정은 grid.capture가 담당).
+   * 현재 열린 꼬리 + 내 영토가 "지금 닫힐 경우" 새로 내 것이 될 셀을 추정한다.
+   * grid.capture와 같은 "가장자리 flood fill" 방식이라 실제보다 크게 보이지 않는다(과장 금지).
+   * 프레임 루프가 아니라 틱에서만 호출하고 결과를 캐시할 것.
+   * @returns { count, cx, cy, cells:Int32Array } — cells = 새로 점령될 셀 인덱스
+   */
+  function estimateCapture(board, trail, id) {
+    const s = board.size;
+    const N = s * s;
+    const owner = board.owner;
+
+    // mine = 내 영토 또는 꼬리 (닫힐 경계)
+    const mine = new Uint8Array(N);
+    for (let i = 0; i < N; i++) mine[i] = owner[i] === id ? 1 : 0;
+    for (let k = 0; k < trail.length; k++) mine[trail[k]] = 1;
+
+    // 보드 가장자리에서 !mine 셀로 물을 채운다
+    const visited = new Uint8Array(N);
+    const stack = [];
+    const seed = (i) => {
+      if (!visited[i] && !mine[i]) {
+        visited[i] = 1;
+        stack.push(i);
+      }
+    };
+    for (let c = 0; c < s; c++) {
+      seed(c);
+      seed((s - 1) * s + c);
+    }
+    for (let r = 0; r < s; r++) {
+      seed(r * s);
+      seed(r * s + s - 1);
+    }
+    while (stack.length) {
+      const i = stack.pop();
+      const c = i % s;
+      const r = (i - c) / s;
+      if (c > 0) seed(i - 1);
+      if (c < s - 1) seed(i + 1);
+      if (r > 0) seed(i - s);
+      if (r < s - 1) seed(i + s);
+    }
+
+    // 새로 내 것이 될 셀 = 현재 내 영토가 아니면서(닫으면 owner=id) 바깥물이 못 닿은 칸 + 꼬리
+    const cells = [];
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < N; i++) {
+      if (owner[i] !== id && !visited[i]) {
+        cells.push(i);
+        const c = i % s;
+        sx += c;
+        sy += (i - c) / s;
+      }
+    }
+    const count = cells.length;
+    return {
+      count,
+      cx: count ? sx / count + 0.5 : 0,
+      cy: count ? sy / count + 0.5 : 0,
+      cells: Int32Array.from(cells),
+    };
+  }
+
+  MW.estimateCapture = estimateCapture;
+
   const C = MW.CONFIG;
 
   class Game {
@@ -26,6 +95,7 @@
       this.cutKills = {};
       this.tickCount = 0;
       this.deathReason = '';
+      this.projected = null; // 예상 점령 게이지 캐시 {count, cx, cy, cells}
 
       // v0.2 온기 & 영속 월드 (GPS 전용)
       this.warmth = new MW.Warmth(C.GRID);
@@ -202,6 +272,7 @@
       this.cuts = 0;
       this.cutKills = {};
       this.tickCount = 0;
+      this.projected = null;
       this.round.reset(C.ROUND_MS_DEMO);
       this.$overlay.classList.add('hidden');
       this.renderer.cam.x = mid + 0.5;
@@ -335,6 +406,15 @@
       }
 
       this.updateOccupancy();
+
+      // 예상 점령 게이지: 열린 꼬리가 있을 때만, GAUGE_TICKS 마다 추정해 캐시
+      if (this.player.alive && this.player.hasTrail()) {
+        if (this.tickCount % C.GAUGE_TICKS === 0 || !this.projected) {
+          this.projected = MW.estimateCapture(this.board, this.player.trail, MW.ID.PLAYER);
+        }
+      } else if (this.projected) {
+        this.projected = null; // 꼬리 없음(내 땅 안) → 게이지 숨김
+      }
 
       // 위험 경고음: 머리가 자기 꼬리와 맨해튼 ≤2 (M5 비네트와 동일 조건, 진입 순간에만)
       const near = this.playerNearOwnTrail();
@@ -948,6 +1028,8 @@
   }
 
   // ---------- 부트스트랩: 로직 틱과 렌더링(rAF) 분리 ----------
+  // (node 테스트 환경에는 document가 없다 — 순수 헬퍼만 노출하고 부트스트랩은 건너뛴다)
+  if (typeof document === 'undefined') return;
   document.addEventListener('DOMContentLoaded', () => {
     new MW.ThemeManager();
     const game = new Game();
