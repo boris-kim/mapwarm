@@ -80,8 +80,10 @@
       // 소리 + 햅틱: 첫 사용자 제스처에서 AudioContext 활성화 (autoplay 정책)
       this.audio = new MW.AudioFx();
       const unlock = () => this.audio.unlock();
-      window.addEventListener('pointerdown', unlock, { passive: true });
-      window.addEventListener('keydown', unlock);
+      // iOS Safari는 touchend/click에서만 오디오를 풀어주므로 여러 제스처에 모두 건다
+      ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach((ev) => {
+        window.addEventListener(ev, unlock, { passive: true });
+      });
       this._dangerWasNear = false; // 위험 경고음 엣지 트리거
 
       // 음소거 토글 (HUD 아이콘)

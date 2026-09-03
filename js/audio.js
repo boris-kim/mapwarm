@@ -23,21 +23,29 @@
       this._lastDanger = 0; // 위험음 스로틀
     }
 
-    // 첫 제스처에서 호출 — AudioContext는 그때 생성/resume
+    // 제스처에서 호출 — AudioContext 생성/resume + iOS 무음버퍼 프라이밍
+    // iOS Safari는 touchend/click에서만 오디오를 풀어주므로 여러 제스처에서 반복 호출된다
     unlock() {
-      if (this.ready) {
-        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
-        return;
-      }
       try {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return; // WebAudio 미지원 → 사운드 없이 진행 (햅틱은 별개)
-        this.ctx = new AC();
-        this.master = this.ctx.createGain();
-        this.master.gain.value = 0.14; // 볼륨 작게
-        this.master.connect(this.ctx.destination);
-        this.ready = true;
-        if (this.ctx.state === 'suspended') this.ctx.resume();
+        if (!this.ready) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return; // WebAudio 미지원 → 사운드 없이 진행 (햅틱은 별개)
+          this.ctx = new AC();
+          this.master = this.ctx.createGain();
+          this.master.gain.value = 0.32; // 볼륨 (합성음이라 여유있게)
+          this.master.connect(this.ctx.destination);
+          this.ready = true;
+        }
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+        // iOS 프라이밍: 제스처 안에서 무음 버퍼를 한 번 재생해야 이후 스케줄음이 난다
+        if (this.ctx && !this._primed) {
+          const buf = this.ctx.createBuffer(1, 1, 22050);
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(this.ctx.destination);
+          src.start(0);
+          this._primed = true;
+        }
       } catch (e) {
         this.ctx = null; // 실패해도 게임은 계속
       }
@@ -58,6 +66,8 @@
     // 짧은 톤 하나 (type=파형, f0→f1 글라이드, dur초, delay초, peak게인)
     tone(type, f0, f1, dur, delay, peak) {
       if (!this.ready || this.muted || !this.ctx) return;
+      // 재생 직전 컨텍스트가 잠겨 있으면 깨운다 (iOS 백그라운드 복귀 등)
+      if (this.ctx.state === 'suspended') this.ctx.resume();
       const t0 = this.ctx.currentTime + (delay || 0);
       const osc = this.ctx.createOscillator();
       const g = this.ctx.createGain();
