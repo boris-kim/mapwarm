@@ -22,8 +22,7 @@ body {
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
-    "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   touch-action: manipulation;
   -webkit-user-select: none;
   user-select: none;
@@ -87,24 +86,23 @@ body {
   align-items: flex-end;
 }
 
-/* --- 스티커 칩 공통: 두꺼운 테두리 + 은은한 그림자 (색은 칩별 토큰) --- */
+/* --- 칩 공통: 투명 배경 + 1px 잉크 괘선 (에디토리얼) --- */
 .chip {
   pointer-events: auto;
   border-radius: var(--radius-lg);
-  box-shadow: var(--sticker-shadow);
+  box-shadow: none;
 }
 
-/* --- 점유율 칩 (시안 B/C): 차콜 패널 + 흰 스티커 테두리
-       "MY LAND"(모노) + "점유율"(시스템 폰트) + 라임 LED 필 --- */
+/* --- 점유율: 필 블록 없이 지면 위 라임 큰 숫자 + 모노 라벨 --- */
 .chip-occupancy {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 7px 6px 12px;
-  background: var(--panel-bg);
-  color: var(--panel-fg);
-  border: var(--sticker-border-w) solid var(--sticker-border);
-  box-shadow: var(--sticker-shadow), var(--glow-hero);
+  padding: 4px 4px 4px 2px;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  box-shadow: none;
 }
 
 .chip-labels {
@@ -117,85 +115,87 @@ body {
 .chip-label-en {
   font-family: var(--font-mono);
   font-size: 0.625rem; /* 10px */
-  font-weight: 700;
-  letter-spacing: var(--track-wide);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--panel-fg);
+  color: var(--text-secondary);
   line-height: 1.1;
   white-space: nowrap;
 }
 
 .chip-label-ko {
-  font-size: 0.625rem; /* 10px — 시스템 산세리프(body 폰트) */
+  font-size: 0.625rem; /* 10px */
   font-weight: 600;
-  color: var(--panel-fg-muted);
+  letter-spacing: var(--track-label);
+  color: var(--text-secondary);
   line-height: 1.1;
   white-space: nowrap;
 }
 
+/* 점유율 숫자 = 지면 위 라임 (LED 필 제거) */
 .led-fill {
   display: inline-block;
-  background: var(--led-fill-bg);
-  color: var(--led-fill-fg);
-  border-radius: var(--radius-sm);
-  padding: 3px 9px;
+  background: var(--led-fill-bg); /* transparent */
+  color: var(--led-fill-fg);      /* 라임 */
+  border-radius: 0;
+  padding: 0;
   font-family: var(--font-mono);
-  font-size: var(--text-lg);
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  line-height: 1.15;
+  font-size: var(--data-lg);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
-/* 점령 순간: JS가 .pop 클래스를 붙였다 떼면 칩이 한 번 튄다 */
+/* 점령 순간: JS가 .pop 클래스를 붙였다 떼면 숫자가 한 번 튄다 */
 .chip-occupancy.pop {
   animation: chip-bounce 0.32s ease-out;
 }
 
 @keyframes chip-bounce {
   0% { transform: scale(1); }
-  35% { transform: scale(1.12); }
+  35% { transform: scale(1.1); }
   100% { transform: scale(1); }
 }
 
-/* --- 최고기록 필 (시안): 흰/차콜 서피스 + 차콜 2px 테두리 + 오렌지 별 --- */
+/* --- 최고기록: 투명 + 1px 괘선, 각지게 --- */
 .chip-best {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  background: var(--surface-bg);
-  border: var(--surface-border-w) solid var(--surface-border);
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  border: 1px solid var(--border-color);
   font-family: var(--font-mono);
   font-size: 0.6875rem; /* 11px */
   font-weight: 700;
-  letter-spacing: var(--track-wide);
-  color: var(--surface-fg);
+  letter-spacing: var(--track-tight);
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .chip-best .star {
-  color: var(--candy-orange);
+  color: var(--text-secondary); /* 오렌지 → 잉크 */
   flex: 0 0 auto;
 }
 
-/* --- 음소거 토글 (v0.2): 원형 스티커 칩, 테마 토글과 동일 언어 --- */
+/* --- 아이콘 토글: hairline 사각 박스 (에디토리얼) --- */
 .mute-btn {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border-radius: 50%;
-  color: var(--surface-fg-muted);
-  background: var(--surface-bg);
-  border: var(--surface-border-w) solid var(--surface-border);
-  box-shadow: var(--sticker-shadow);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  box-shadow: none;
   cursor: pointer;
   pointer-events: auto; /* hud-layer가 none이라 버튼은 명시적으로 켜야 클릭됨 */
-  transition: transform 0.12s ease, color 0.2s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .mute-btn svg {
@@ -203,12 +203,22 @@ body {
   pointer-events: none;
 }
 
+@media (hover: hover) {
+  .mute-btn:hover:not(:disabled) {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+  }
+}
+
 .mute-btn .ico-sound-off {
   display: none;
 }
 
+/* 음소거 = 잉크 반전 */
 .mute-btn.muted {
-  color: var(--candy-pink);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  border-color: var(--text-primary);
 }
 
 .mute-btn.muted .ico-sound-on {
@@ -239,23 +249,23 @@ body {
 }
 
 .mute-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.98);
 }
 
 .mute-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
-/* --- 프로필 버튼 (v0.3): 아바타 썸네일 원형 스티커 --- */
+/* --- 프로필 버튼: 아바타 썸네일 (사진 원 유지, 프레임은 사각) --- */
 .profile-btn {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border-radius: 50%;
-  background: var(--surface-bg);
-  border: var(--surface-border-w) solid var(--surface-border);
-  box-shadow: var(--sticker-shadow);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  box-shadow: none;
   cursor: pointer;
   pointer-events: auto; /* hud-layer가 none이라 버튼은 명시적으로 켜야 클릭됨 */
   overflow: hidden;
@@ -265,11 +275,11 @@ body {
 }
 
 .profile-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.98);
 }
 
 .profile-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -287,20 +297,20 @@ body {
 
 .book-badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-full);
-  background: var(--candy-lime);
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-color); /* 라임 = 유일 액센트 */
   color: var(--on-primary);
   font-family: var(--font-mono);
-  font-size: 0.625rem;
-  font-weight: 800;
-  line-height: 16px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 15px;
   text-align: center;
-  border: 1.5px solid var(--sticker-border);
+  border: 1px solid var(--bg-primary);
 }
 
 .book-card {
@@ -371,7 +381,7 @@ body {
 }
 
 .book-slot.owned:active {
-  transform: scale(0.92);
+  transform: scale(0.98);
 }
 
 .book-slot canvas {
@@ -494,8 +504,8 @@ body {
 }
 
 .pf-face.active {
-  border-color: var(--primary-color);
-  box-shadow: var(--glow-hero);
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 1px var(--text-primary); /* 1px 잉크 링 (글로우 제거) */
 }
 
 .pf-colors {
@@ -514,8 +524,8 @@ body {
 }
 
 .pf-color.active {
-  border-color: var(--sticker-border);
-  box-shadow: var(--sticker-shadow), 0 0 0 2px var(--focus-ring);
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg-secondary), 0 0 0 3px var(--text-primary);
 }
 
 .pf-group-row {
@@ -549,82 +559,97 @@ body {
   text-align: center;
 }
 
-/* --- 남은 시간 칩 (v0.15): 차콜 패널 + 모노 전광판, 30초 남으면 핑크 --- */
+/* --- 남은 시간: 투명 + 1px 괘선, 각지게 (warn만 danger 핑크) --- */
 .chip-time {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  background: var(--panel-bg);
-  color: var(--panel-fg);
-  border: var(--sticker-border-w) solid var(--sticker-border);
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  font-weight: 800;
-  letter-spacing: var(--track-wide);
+  font-weight: 700;
+  letter-spacing: var(--track-tight);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .chip-time-label {
   font-size: 0.625rem; /* 10px */
-  font-weight: 700;
-  color: var(--panel-fg-muted);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  color: var(--text-secondary);
 }
 
 .chip-time.warn {
-  color: var(--candy-pink);
-  box-shadow: var(--sticker-shadow), var(--glow-pink);
+  color: var(--danger-color);
+  border-color: var(--danger-color);
+  box-shadow: none;
 }
 
 .chip-time.warn .chip-time-label {
-  color: var(--candy-pink);
+  color: var(--danger-color);
 }
 
 /* ============================================================
-   모드 토글 (데모/GPS) — 시안: 흰/차콜 서피스 칩 + 차콜 테두리
-   활성 = 차콜 필 + 라임 텍스트
+   모드 토글 (데모/GPS) — 트랙 배경 제거 + 옵션 사이 1px 구분선
+   활성 = 잉크 반전
    ============================================================ */
 .mode-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  border-radius: var(--radius-full);
-  padding: 3px;
-  background: var(--surface-bg);
-  border: var(--surface-border-w) solid var(--surface-border);
+  gap: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--surface-border);
+  overflow: hidden;
 }
 
 .mode-option {
   border: none;
+  border-left: 1px solid var(--surface-border); /* 옵션 사이 구분선 */
   background: transparent;
-  color: var(--surface-fg-muted);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 0.6875rem; /* 11px */
   font-weight: 700;
-  letter-spacing: var(--track-wide);
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   min-height: 26px;
   padding: 4px 11px;
-  border-radius: var(--radius-full);
+  border-radius: 0;
   cursor: pointer;
-  transition: transform 0.12s ease, background-color 0.2s ease, color 0.2s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.mode-option:first-child {
+  border-left: none;
+}
+
+@media (hover: hover) {
+  .mode-option:hover {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+  }
 }
 
 .mode-option.active {
   background: var(--toggle-active-bg);
   color: var(--toggle-active-fg);
-  box-shadow: var(--glow-hero);
+  box-shadow: none;
 }
 
 .mode-option:active {
-  transform: scale(0.94);
+  transform: scale(0.98);
 }
 
 .mode-option:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: -1px;
 }
 
 /* ============================================================
@@ -690,16 +715,16 @@ body {
   top: calc(var(--space-2) + env(safe-area-inset-top) + 56px); /* HUD 칩 아래 */
   left: 50%;
   transform: translateX(-50%);
-  background: var(--panel-bg);
-  color: var(--candy-orange);
-  border: var(--sticker-border-w) solid var(--sticker-border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--sticker-border);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  box-shadow: var(--sticker-shadow), var(--glow-orange);
+  letter-spacing: var(--track-tight);
+  padding: 6px 12px;
+  border-radius: var(--radius-lg);
+  box-shadow: none;
   z-index: 6;
   white-space: nowrap;
 }
@@ -712,15 +737,15 @@ body {
   position: absolute;
   bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
   left: 50%;
-  transform: translateX(-50%) rotate(2deg);
-  background: var(--surface-bg);
-  color: var(--surface-fg);
-  border: var(--sticker-border-w) solid var(--candy-lime);
-  padding: 10px 18px;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--sticker-border);
+  padding: 10px 16px;
   border-radius: var(--radius-lg);
   font-size: var(--text-sm);
-  font-weight: 700;
-  box-shadow: var(--sticker-shadow), var(--glow-hero);
+  font-weight: 600;
+  box-shadow: none;
   z-index: 7;
   max-width: 90%;
   text-align: center;
@@ -743,62 +768,59 @@ body {
 
 .overlay-card {
   position: relative;
-  background: var(--panel-bg);
-  color: var(--panel-fg);
-  border: var(--sticker-border-w) solid var(--sticker-border);
+  background: var(--bg-secondary); /* 페이퍼 */
+  color: var(--text-primary);
+  border: 1px solid var(--sticker-border);
   border-radius: var(--radius-xl);
-  padding: var(--space-8) var(--space-6) var(--space-6);
+  padding: var(--space-6) var(--space-6) var(--space-4);
   width: min(320px, 86%);
   text-align: center;
-  box-shadow: var(--sticker-shadow), var(--glow-pink);
-  animation: card-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  box-shadow: none;
+  animation: card-pop 0.28s ease both;
 }
 
 @keyframes card-pop {
   from {
-    transform: scale(0.82) translateY(14px);
+    transform: translateY(10px);
     opacity: 0;
   }
   to {
-    transform: scale(1) translateY(0);
+    transform: translateY(0);
     opacity: 1;
   }
 }
 
-/* 리벳 도트 4개 — 기계 패널 장식 */
+/* 리벳 제거 (기계 패널 장식 → 에디토리얼) */
 .rivet {
-  position: absolute;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--rivet-color);
-  box-shadow: inset 0 -1.5px 0 var(--panel-bg-deep);
-  pointer-events: none;
+  display: none;
 }
 
-.rivet-tl { top: 10px; left: 10px; }
-.rivet-tr { top: 10px; right: 10px; }
-.rivet-bl { bottom: 10px; left: 10px; }
-.rivet-br { bottom: 10px; right: 10px; }
-
+/* 카드 상단 케이스 라벨 + 1px 괘선 */
 .overlay-card h2 {
-  margin: 0 0 var(--space-2);
-  font-family: var(--font-mono);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--font-serif);
   font-size: var(--text-2xl);
-  font-weight: 800;
-  letter-spacing: 0.14em; /* 대문자 모노 스텐실 느낌 */
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  text-transform: none; /* 세리프 소문자 유지 */
+  color: var(--text-primary);
+}
+
+/* 사망 = danger 소량 (제목 색만) */
+.overlay-card h2#result-title:not(.win) {
   color: var(--danger-color);
 }
 
-/* 승리 시 타이틀은 라임 */
+/* 승리 = 라임 소량 */
 .overlay-card h2.win {
-  color: var(--candy-lime);
+  color: var(--primary-color);
 }
 
 #death-reason {
   margin: 0 0 var(--space-2);
-  color: var(--panel-fg-muted);
+  color: var(--text-secondary);
   font-size: var(--text-sm);
   min-height: 1.2em;
 }
@@ -853,54 +875,65 @@ body {
   font-size: var(--text-sm);
 }
 
-/* 보조 버튼: 서피스 스티커 (다시 시작) */
+/* 보조 버튼: 투명 + 1px 잉크 아웃라인, hover 잉크 반전 */
 .btn-secondary {
   flex: 1;
-  background: var(--surface-bg);
-  color: var(--surface-fg);
-  border: var(--surface-border-w) solid var(--surface-border);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--text-primary);
   border-radius: var(--radius-lg);
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
   padding: 12px 10px;
   cursor: pointer;
-  box-shadow: var(--sticker-shadow);
-  transition: transform 0.12s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+@media (hover: hover) {
+  .btn-secondary:hover {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+  }
 }
 
 .btn-secondary:active {
-  transform: scale(0.96);
+  transform: scale(0.98);
 }
 
 .btn-secondary:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 3px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
-/* --- 다시 시작: 네온 라임 스티커 버튼 --- */
+/* --- 주요 버튼: 라임 플랫 필 (발광·흰테두리·글로우 제거) --- */
 .btn-primary {
   width: 100%;
   background: var(--primary-color);
   color: var(--on-primary);
-  border: var(--sticker-border-w) solid var(--sticker-border);
+  border: 1px solid var(--primary-color);
   border-radius: var(--radius-lg);
-  font-size: var(--text-base);
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
   padding: 13px 28px;
   cursor: pointer;
-  box-shadow: var(--sticker-shadow), var(--glow-hero);
+  box-shadow: none;
   transition: transform 0.12s ease;
 }
 
 .btn-primary:active {
-  transform: scale(0.96);
+  transform: scale(0.98);
 }
 
 .btn-primary:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 3px;
+  outline: 1px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* ============================================================
