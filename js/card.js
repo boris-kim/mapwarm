@@ -139,6 +139,17 @@
         ctx.fillText(result.reason, W / 2, 1198);
       }
 
+      // 주간 카드: 랜드마크 소유/발견 한 줄
+      if (result.weekly && result.landmarks) {
+        ctx.font = '700 28px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillStyle = P.lime;
+        ctx.fillText(
+          '★ 랜드마크 소유 ' + result.landmarks.owned + ' / 발견 ' + result.landmarks.discovered,
+          W / 2,
+          1232
+        );
+      }
+
       // --- MapWarm 로고 스티커 (핑크 필 + 흰 테두리, 살짝 기울임) ---
       ctx.save();
       ctx.translate(W / 2, 1276);

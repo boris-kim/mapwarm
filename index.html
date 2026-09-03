@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>MapWarm — 걸어서 땅따먹기</title>
-  <!-- ⚠ 캐시 버스팅 버전: 현재 v=026 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
-       (아래 css 2개 + body 하단 js 15개, 전부 동일한 값이어야 한다) -->
-  <link rel="stylesheet" href="css/design-system.css?v=026">
-  <link rel="stylesheet" href="css/main.css?v=026">
+  <!-- ⚠ 캐시 버스팅 버전: 현재 v=027 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
+       (아래 css 2개 + body 하단 js 16개, 전부 동일한 값이어야 한다) -->
+  <link rel="stylesheet" href="css/design-system.css?v=027">
+  <link rel="stylesheet" href="css/main.css?v=027">
 </head>
 <body>
   <main class="game-area" id="game-area">
@@ -116,8 +116,32 @@
       <button type="button" id="profile-btn" class="profile-btn" aria-label="프로필 설정">
         <canvas id="profile-thumb" class="profile-thumb" width="30" height="30" aria-hidden="true"></canvas>
       </button>
+      <button type="button" id="book-btn" class="mute-btn book-btn" aria-label="도감">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H19a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5.5A1.5 1.5 0 0 0 4 21.5z"/>
+          <path d="M4 18.5A1.5 1.5 0 0 1 5.5 17H20"/>
+        </svg>
+        <span class="book-badge hidden">0</span>
+      </button>
     </div>
   </header>
+
+  <!-- 콜렉션 북 (스티커 앨범) -->
+  <div id="book-overlay" class="overlay hidden">
+    <div class="overlay-card book-card">
+      <span class="rivet rivet-tl" aria-hidden="true"></span>
+      <span class="rivet rivet-tr" aria-hidden="true"></span>
+      <span class="rivet rivet-bl" aria-hidden="true"></span>
+      <span class="rivet rivet-br" aria-hidden="true"></span>
+      <h2 id="book-title">랜드마크 도감</h2>
+      <p id="book-count" class="book-count"></p>
+      <p id="book-detail" class="book-detail"></p>
+      <div id="book-grid" class="book-grid"></div>
+      <div class="result-actions">
+        <button type="button" id="book-close" class="btn-primary">닫기</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 프로필 설정 시트 -->
   <div id="profile-overlay" class="overlay hidden">
@@ -183,20 +207,21 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=026"></script>
-  <script src="js/theme.js?v=026"></script>
-  <script src="js/profile.js?v=026"></script>
-  <script src="js/net.js?v=026"></script>
-  <script src="js/round.js?v=026"></script>
-  <script src="js/warmth.js?v=026"></script>
-  <script src="js/grid.js?v=026"></script>
-  <script src="js/entities.js?v=026"></script>
-  <script src="js/input.js?v=026"></script>
-  <script src="js/gps.js?v=026"></script>
-  <script src="js/audio.js?v=026"></script>
-  <script src="js/map.js?v=026"></script>
-  <script src="js/render.js?v=026"></script>
-  <script src="js/card.js?v=026"></script>
-  <script src="js/main.js?v=026"></script>
+  <script src="js/config.js?v=027"></script>
+  <script src="js/theme.js?v=027"></script>
+  <script src="js/profile.js?v=027"></script>
+  <script src="js/net.js?v=027"></script>
+  <script src="js/landmarks.js?v=027"></script>
+  <script src="js/round.js?v=027"></script>
+  <script src="js/warmth.js?v=027"></script>
+  <script src="js/grid.js?v=027"></script>
+  <script src="js/entities.js?v=027"></script>
+  <script src="js/input.js?v=027"></script>
+  <script src="js/gps.js?v=027"></script>
+  <script src="js/audio.js?v=027"></script>
+  <script src="js/map.js?v=027"></script>
+  <script src="js/render.js?v=027"></script>
+  <script src="js/card.js?v=027"></script>
+  <script src="js/main.js?v=027"></script>
 </body>
 </html>

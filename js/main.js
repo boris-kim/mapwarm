@@ -155,7 +155,11 @@
       // 친구 멀티 (비동기 우편함). 키/그룹 없으면 완전 무동작 = 혼자 플레이.
       this.initNet();
 
+      // 랜드마크 콜렉팅 (Overpass POI). 실패해도 게임은 계속.
+      this.landmarks = new MW.Landmarks();
+
       this.setupProfileUI();
+      this.setupBookUI();
 
       // 소리 + 햅틱: 첫 사용자 제스처에서 AudioContext 활성화 (autoplay 정책)
       this.audio = new MW.AudioFx();
@@ -334,7 +338,8 @@
         dir = null;
       }
 
-      if (gps) this._preOwner.set(this.board.owner);
+      // 점령 직전 스냅샷 (양쪽 모드 — 랜드마크 획득 판정에 감싼 셀 diff 필요)
+      this._preOwner.set(this.board.owner);
       const fromC = this.player.c;
       const fromR = this.player.r;
       const res = this.player.step(dir);
@@ -357,6 +362,7 @@
         const gained = this.board.count(MW.ID.PLAYER) - this.playerCells;
         this.afterCapture(this.player);
         this.captureFx(gained);
+        this.awardLandmarksFromCapture(); // 데모·GPS 공통 (감싼 영역 안 POI 획득)
         if (gps) this.onLoopClosed(gained);
       } else if (res === 'moved' && gps) {
         if (!this.player.hasTrail()) {
@@ -503,6 +509,7 @@
       this.afterCapture(this.player);
       if (this.audio) this.audio.earlyClose(); // 조기 닫힘 전용 낮은 톤 + 패턴 진동
       this.captureFx(gained, true); // 팝 연출은 유지, 점령 사운드는 억제
+      this.awardLandmarksFromCapture();
       this.onLoopClosed(gained);
     }
 
@@ -733,6 +740,7 @@
         kills: {},
         gained: week.gained || 0,
         walks: week.walks || 0,
+        landmarks: this.landmarks ? this.landmarkStats() : null,
         owner: Uint8Array.from(week.maxOwner),
       };
       if (this.audio) this.audio.report();
@@ -1174,6 +1182,206 @@
     // 이번 세션에 바뀐 셀 기록 (업로드 델타용)
     markDelta(idx) {
       if (this.mode === 'gps') this.sessionDelta.add(idx);
+    }
+
+    // ---------- 랜드마크 콜렉팅 ----------
+    // 이번에 감싼 셀(_preOwner diff)로 획득 판정
+    awardLandmarksFromCapture() {
+      if (!this.landmarks) return;
+      const o = this.board.owner;
+      const pre = this._preOwner;
+      const set = new Set();
+      for (let i = 0; i < o.length; i++) {
+        if (o[i] === MW.ID.PLAYER && pre[i] !== MW.ID.PLAYER) set.add(i);
+      }
+      if (set.size) this.awardLandmarks(set);
+    }
+
+    async awardLandmarks(capturedSet) {
+      const now = Date.now();
+      // ① 마일스톤 (네트워크 불필요, 즉시)
+      const prev = this.landmarks.explored;
+      this.landmarks.explored += capturedSet.size;
+      this.landmarks.saveExplored();
+      const mstones = MW.Landmarks.checkMilestones(
+        prev, this.landmarks.explored, this.landmarks.collection, now
+      );
+      if (mstones.length) {
+        this.landmarks.saveCollection();
+        for (let i = 0; i < mstones.length; i++) this.onLandmark(mstones[i]);
+        this.refreshBookBadge();
+      }
+
+      // ② POI (Overpass, 캐시 우선 — 실패해도 무해)
+      const bbox = this.captureBbox(capturedSet);
+      if (!bbox) return;
+      const pois = await this.landmarks.fetchRegion(bbox);
+      if (!pois.length) return;
+      const cellOf = (lat, lon) => {
+        const cell = this.geo.latLngToCell(lat, lon);
+        if (!this.board.inBounds(cell.c, cell.r)) return null;
+        return this.board.idx(cell.c, cell.r);
+      };
+      const newly = MW.Landmarks.awardFromCapture(
+        pois, capturedSet, cellOf, this.landmarks.collection, now
+      );
+      if (newly.length) {
+        this.landmarks.saveCollection();
+        for (let i = 0; i < newly.length; i++) this.onLandmark(newly[i]);
+        this.refreshBookBadge();
+      }
+    }
+
+    onLandmark(entry) {
+      const info = MW.Landmarks.catInfo(entry.cat);
+      const popLabel = entry.milestone ? entry.name : (info ? info.label : '랜드마크');
+      if (this.renderer) this.renderer.landmarkPop(popLabel, entry.cat);
+      if (this.audio) this.audio.landmark();
+      this.toast('랜드마크 발견: ' + (entry.name || popLabel));
+    }
+
+    // 감싼 셀 집합 → Overpass bbox (셀 코너를 위경도로 역변환)
+    captureBbox(set) {
+      const s = C.GRID;
+      let cMin = 1e9, cMax = -1e9, rMin = 1e9, rMax = -1e9;
+      set.forEach((i) => {
+        const c = i % s;
+        const r = (i - c) / s;
+        if (c < cMin) cMin = c;
+        if (c > cMax) cMax = c;
+        if (r < rMin) rMin = r;
+        if (r > rMax) rMax = r;
+      });
+      if (cMax < 0) return null;
+      const corners = [[cMin, rMin], [cMax + 1, rMin], [cMin, rMax + 1], [cMax + 1, rMax + 1]];
+      let south = 1e9, north = -1e9, west = 1e9, east = -1e9;
+      for (let k = 0; k < corners.length; k++) {
+        const m = this.geo.cellToMercator(corners[k][0], corners[k][1]);
+        const ll = this.mercToLatLng(m.x, m.y);
+        if (ll.lat < south) south = ll.lat;
+        if (ll.lat > north) north = ll.lat;
+        if (ll.lon < west) west = ll.lon;
+        if (ll.lon > east) east = ll.lon;
+      }
+      return { s: south, w: west, n: north, e: east };
+    }
+
+    mercToLatLng(x, y) {
+      return {
+        lon: x * 360 - 180,
+        lat: (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI,
+      };
+    }
+
+    // ---------- 콜렉션 북 (스티커 앨범) ----------
+    setupBookUI() {
+      this.$bookBtn = document.getElementById('book-btn');
+      this.$bookOverlay = document.getElementById('book-overlay');
+      this.$bookGrid = document.getElementById('book-grid');
+      this.$bookDetail = document.getElementById('book-detail');
+      this.$bookCount = document.getElementById('book-count');
+      const close = document.getElementById('book-close');
+      if (!this.$bookBtn) return;
+      this.$bookBtn.addEventListener('click', () => this.openBook());
+      if (close) close.addEventListener('click', () => this.$bookOverlay.classList.add('hidden'));
+      this.refreshBookBadge();
+    }
+
+    // 발견/전체 카운트 요약
+    landmarkStats() {
+      const col = this.landmarks ? this.landmarks.collection : {};
+      const keys = Object.keys(col);
+      const cellOf = (lat, lon) => {
+        const cell = this.geo.latLngToCell(lat, lon);
+        if (!this.board.inBounds(cell.c, cell.r)) return null;
+        return this.board.idx(cell.c, cell.r);
+      };
+      let owned = 0;
+      for (let i = 0; i < keys.length; i++) {
+        if (MW.Landmarks.isOwnedNow(col[keys[i]], this.board, cellOf, MW.ID.PLAYER)) owned++;
+      }
+      return { discovered: keys.length, owned };
+    }
+
+    refreshBookBadge() {
+      if (!this.$bookBtn) return;
+      const st = this.landmarkStats();
+      this.$bookBtn.setAttribute('aria-label', '도감 (' + st.discovered + ' 발견)');
+      const b = this.$bookBtn.querySelector('.book-badge');
+      if (b) {
+        b.textContent = st.discovered;
+        b.classList.toggle('hidden', st.discovered === 0);
+      }
+    }
+
+    openBook() {
+      this.buildBook();
+      this.$bookOverlay.classList.remove('hidden');
+    }
+
+    buildBook() {
+      const col = this.landmarks.collection;
+      const st = this.landmarkStats();
+      this.$bookCount.textContent = '발견 ' + st.discovered + ' · 현재 소유 ' + st.owned;
+      this.$bookDetail.textContent = '';
+      this.$bookGrid.innerHTML = '';
+
+      const cellOf = (lat, lon) => {
+        const cell = this.geo.latLngToCell(lat, lon);
+        if (!this.board.inBounds(cell.c, cell.r)) return null;
+        return this.board.idx(cell.c, cell.r);
+      };
+
+      // 카테고리별 섹션 (획득=컬러 스티커 / 미획득=회색 실루엣 슬롯)
+      const cats = MW.Landmarks.cats();
+      for (let ci = 0; ci < cats.length; ci++) {
+        const cat = cats[ci];
+        const entries = Object.keys(col)
+          .map((k) => col[k])
+          .filter((e) => e.cat === cat.id);
+
+        const section = document.createElement('div');
+        section.className = 'book-section';
+        const h = document.createElement('div');
+        h.className = 'book-section-h';
+        h.textContent = cat.label + ' · ' + entries.length;
+        section.appendChild(h);
+
+        const row = document.createElement('div');
+        row.className = 'book-row';
+
+        if (entries.length === 0) {
+          // 미획득 실루엣 슬롯
+          const slot = document.createElement('div');
+          slot.className = 'book-slot';
+          const cv = document.createElement('canvas');
+          cv.width = 44; cv.height = 44;
+          slot.appendChild(cv);
+          row.appendChild(slot);
+          this.renderer.renderStickerTo(cv, cat.id, false);
+        } else {
+          for (let i = 0; i < entries.length; i++) {
+            const e = entries[i];
+            const owned = MW.Landmarks.isOwnedNow(e, this.board, cellOf, MW.ID.PLAYER);
+            const slot = document.createElement('button');
+            slot.type = 'button';
+            slot.className = 'book-slot owned';
+            const cv = document.createElement('canvas');
+            cv.width = 44; cv.height = 44;
+            slot.appendChild(cv);
+            slot.addEventListener('click', () => {
+              const d = new Date(e.firstAt);
+              const ds = d.getFullYear() + '.' + (d.getMonth() + 1) + '.' + d.getDate();
+              this.$bookDetail.textContent =
+                e.name + ' · 최초 획득 ' + ds + ' · ' + (owned ? '현재 소유 ✓' : '지금은 뺏김');
+            });
+            row.appendChild(slot);
+            this.renderer.renderStickerTo(cv, cat.id, true);
+          }
+        }
+        section.appendChild(row);
+        this.$bookGrid.appendChild(section);
+      }
     }
 
     // ---------- HUD ----------

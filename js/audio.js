@@ -173,6 +173,14 @@
       this.vibrate([15, 60, 15]);
     }
 
+    landmark() {
+      // 랜드마크 획득: 밝은 종소리 (상승 3음 + 여운)
+      this.tone('triangle', 784, 784, 0.12, 0, 0.7);   // G5
+      this.tone('triangle', 1047, 1047, 0.14, 0.08, 0.7); // C6
+      this.tone('sine', 1319, 1319, 0.35, 0.16, 0.55);    // E6 여운
+      this.vibrate([12, 30, 12]);
+    }
+
     // ---------- 발소리 (자박자박): 로우패스 화이트노이즈 짧은 버스트 ----------
     footstep() {
       if (!this.ready || this.muted || !this.ctx) return;

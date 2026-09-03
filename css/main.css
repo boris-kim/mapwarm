@@ -280,6 +280,106 @@ body {
   pointer-events: none;
 }
 
+/* --- 도감 버튼 배지 + 콜렉션 북 --- */
+.book-btn {
+  position: relative;
+}
+
+.book-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--candy-lime);
+  color: var(--on-primary);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+  border: 1.5px solid var(--sticker-border);
+}
+
+.book-card {
+  width: min(360px, 94%);
+  max-height: 88vh;
+  overflow-y: auto;
+  text-align: left;
+  padding: var(--space-6) var(--space-4) var(--space-4);
+}
+
+.book-card h2 {
+  text-align: center;
+}
+
+.book-count {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--candy-lime);
+  margin: 0 0 var(--space-2);
+}
+
+.book-detail {
+  min-height: 1.2em;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--panel-fg-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.book-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.book-section-h {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--panel-fg-muted);
+  margin-bottom: 6px;
+}
+
+.book-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.book-slot {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  cursor: default;
+}
+
+.book-slot.owned {
+  cursor: pointer;
+}
+
+.book-slot.owned:active {
+  transform: scale(0.92);
+}
+
+.book-slot canvas {
+  width: 44px;
+  height: 44px;
+  pointer-events: none;
+}
+
 /* --- 프로필 설정 시트 --- */
 .profile-card {
   width: min(340px, 92%);

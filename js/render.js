@@ -92,6 +92,9 @@
       this.friendRev = -1;
       this.friendBase = []; // [{idx, m, base}]
 
+      // 랜드마크 획득 스티커 팝 큐 {label, color, t0}
+      this.landmarkPops = [];
+
       // 프로필: 플레이어(id 1)는 프로필을 따르고, 봇은 고정
       this.profile = MW.Profile ? MW.Profile.load() : { nick: 'MINJAE', photo: null, face: 0, color: 'lime' };
       this.names = { 1: this.profile.nick, 2: 'PIKO', 3: 'MOMO' };
@@ -519,6 +522,9 @@
 
       // 위험 비네트 (자기 꼬리 근접 — 줌/월드 변환 밖, 화면 고정)
       this.drawDangerVignette(w, h, now);
+
+      // 랜드마크 획득 스티커 팝 (화면 고정, 최상단)
+      this.drawLandmarkPops(w, h, now);
     }
 
     // ---------- 다크 네온 클러스터 글로우 ----------
@@ -1300,6 +1306,201 @@
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
+    }
+
+    // ---------- 랜드마크 획득 스티커 팝 ----------
+    // main.js가 획득 순간 호출: label(예 "도서관"), catId(카테고리)
+    landmarkPop(label, catId) {
+      this.landmarkPops.push({ label: label, cat: catId, t0: performance.now() });
+    }
+
+    catColor(catId) {
+      const info = MW.Landmarks && MW.Landmarks.catInfo(catId);
+      const candy = this.palette.candy || {};
+      return (info && candy[info.color]) || this.palette.ent[1].h;
+    }
+
+    drawLandmarkPops(w, h, now) {
+      if (!this.landmarkPops.length) return;
+      const ctx = this.ctx;
+      const P = this.palette;
+      const LIFE = 1800;
+      // 여러 개 겹칠 때 세로로 쌓기
+      let slot = 0;
+      for (let i = this.landmarkPops.length - 1; i >= 0; i--) {
+        const pop = this.landmarkPops[i];
+        const t = (now - pop.t0) / LIFE;
+        if (t >= 1) {
+          this.landmarkPops.splice(i, 1);
+          continue;
+        }
+        const color = this.catColor(pop.cat);
+        // 등장 스케일 팝 + 마지막 페이드
+        const inT = Math.min(1, t / 0.12);
+        const scale = 0.6 + 0.4 * (1 - Math.pow(1 - inT, 3));
+        const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
+        const rise = 12 * (1 - inT);
+
+        const cx = w / 2;
+        const cy = h * 0.26 + slot * 62 + rise;
+        slot++;
+
+        const text = '+' + pop.label;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+
+        const iconR = 15;
+        ctx.font = '800 22px ' + MONO;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        const tw = ctx.measureText(text).width;
+        const padL = iconR * 2 + 16;
+        const boxW = padL + tw + 18;
+        const boxH = 48;
+
+        // 스티커 필 (서피스 + 카테고리색 두꺼운 테두리 + 글로우) — §6.5
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 16;
+        this.roundRectPath(-boxW / 2, -boxH / 2, boxW, boxH, boxH / 2);
+        ctx.fillStyle = P.bg;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = color;
+        this.roundRectPath(-boxW / 2, -boxH / 2, boxW, boxH, boxH / 2);
+        ctx.stroke();
+
+        // 카테고리 아이콘 (왼쪽 원 스티커)
+        this.drawStickerIcon(ctx, pop.cat, -boxW / 2 + 8 + iconR, 0, iconR, true);
+
+        // 라벨
+        ctx.fillStyle = P.face;
+        ctx.font = '800 20px ' + MONO;
+        ctx.fillText(text, -boxW / 2 + padL, 1);
+        ctx.restore();
+      }
+    }
+
+    // ---------- 카테고리 스티커 아이콘 (팝 + 콜렉션 북 공용, ctx 명시) ----------
+    // owned=false면 회색 실루엣 (미획득 슬롯)
+    drawStickerIcon(ctx, catId, cx, cy, R, owned) {
+      const P = this.palette;
+      const color = owned ? this.catColor(catId) : P.bound;
+      // 원형 스티커 바탕 + 흰 테두리
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.5, R * 0.14);
+      ctx.strokeStyle = P.white;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 글리프 (흰색, 카테고리별 단순 도형)
+      ctx.strokeStyle = P.white;
+      ctx.fillStyle = P.white;
+      ctx.lineWidth = Math.max(1.4, R * 0.14);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const u = R / 2;
+      switch (catId) {
+        case 'cafe': // 컵
+          ctx.strokeRect(cx - u * 0.7, cy - u * 0.5, u * 1.2, u * 1.1);
+          ctx.beginPath();
+          ctx.arc(cx + u * 0.7, cy, u * 0.4, -1.4, 1.4);
+          ctx.stroke();
+          break;
+        case 'park': // 나무
+          ctx.beginPath();
+          ctx.arc(cx, cy - u * 0.3, u * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(cx, cy + u * 0.4);
+          ctx.lineTo(cx, cy + u);
+          ctx.stroke();
+          break;
+        case 'library':
+        case 'school': // 책
+          ctx.strokeRect(cx - u * 0.8, cy - u * 0.6, u * 1.6, u * 1.2);
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - u * 0.6);
+          ctx.lineTo(cx, cy + u * 0.6);
+          ctx.stroke();
+          break;
+        case 'pharmacy': // 십자
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - u * 0.8);
+          ctx.lineTo(cx, cy + u * 0.8);
+          ctx.moveTo(cx - u * 0.8, cy);
+          ctx.lineTo(cx + u * 0.8, cy);
+          ctx.stroke();
+          break;
+        case 'station': // 원+선
+          ctx.beginPath();
+          ctx.arc(cx, cy - u * 0.2, u * 0.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx - u * 0.7, cy + u * 0.7);
+          ctx.lineTo(cx + u * 0.7, cy + u * 0.7);
+          ctx.stroke();
+          break;
+        case 'bridge': // 아치
+          ctx.beginPath();
+          ctx.arc(cx, cy + u * 0.4, u * 0.9, Math.PI, 0);
+          ctx.stroke();
+          break;
+        case 'bank':
+        case 'post_office': // 건물
+          ctx.strokeRect(cx - u * 0.8, cy - u * 0.5, u * 1.6, u * 1.1);
+          ctx.beginPath();
+          ctx.moveTo(cx - u, cy - u * 0.5);
+          ctx.lineTo(cx + u, cy - u * 0.5);
+          ctx.stroke();
+          break;
+        case 'restaurant': // 포크
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - u * 0.8);
+          ctx.lineTo(cx, cy + u * 0.8);
+          ctx.moveTo(cx - u * 0.4, cy - u * 0.8);
+          ctx.lineTo(cx - u * 0.4, cy - u * 0.2);
+          ctx.moveTo(cx + u * 0.4, cy - u * 0.8);
+          ctx.lineTo(cx + u * 0.4, cy - u * 0.2);
+          ctx.stroke();
+          break;
+        case 'frontier': // 깃발/별
+        default: {
+          ctx.beginPath();
+          for (let k = 0; k < 5; k++) {
+            const a = -Math.PI / 2 + (k * 2 * Math.PI) / 5;
+            const rr = k % 1 === 0 ? u * 0.9 : u * 0.4;
+            const px = cx + Math.cos(a) * rr;
+            const py = cy + Math.sin(a) * rr;
+            if (k === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          break;
+        }
+      }
+      ctx.restore();
+    }
+
+    // 콜렉션 북: 카테고리 아이콘을 임의 캔버스에 렌더 (main.js가 호출)
+    renderStickerTo(canvasEl, catId, owned) {
+      if (!canvasEl || !this.palette) return;
+      const ctx = canvasEl.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const size = 44;
+      canvasEl.width = size * dpr;
+      canvasEl.height = size * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
+      this.drawStickerIcon(ctx, catId, size / 2, size / 2, size / 2 - 3, owned);
     }
   }
 
