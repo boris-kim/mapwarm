@@ -32,6 +32,33 @@
     };
   }
 
+  // 친구 영토 밀도 계산 (순수 함수 — node 테스트 가능).
+  // remoteOwner: {idx → memberId}. 8방 이웃 중 같은 친구 셀 수에 비례한 도트 반지름 계수.
+  // 반환: [{idx, m, base}]
+  function computeFriendField(remoteOwner, size) {
+    const out = [];
+    if (!remoteOwner) return out;
+    const keys = Object.keys(remoteOwner);
+    for (let k = 0; k < keys.length; k++) {
+      const idx = +keys[k];
+      const m = remoteOwner[keys[k]];
+      const c = idx % size;
+      const r = (idx - c) / size;
+      let n = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (!dr && !dc) continue;
+          const cc = c + dc;
+          const rr = r + dr;
+          if (cc < 0 || rr < 0 || cc >= size || rr >= size) continue;
+          if (remoteOwner[rr * size + cc] === m) n++;
+        }
+      }
+      out.push({ idx, m, base: DOT_MIN + (DOT_MAX - DOT_MIN) * (n / 8) });
+    }
+    return out;
+  }
+
   class Renderer {
     constructor(canvas, board, game) {
       this.canvas = canvas;
@@ -60,6 +87,10 @@
       // 예상 점령 게이지: 숫자 스케일 팝 추적
       this._projCount = -1;
       this._projPopT0 = -1e9;
+
+      // 친구 영토 캐시 (remoteOwner 변경 시에만 밀도 재계산)
+      this.friendRev = -1;
+      this.friendBase = []; // [{idx, m, base}]
 
       // 프로필: 플레이어(id 1)는 프로필을 따르고, 봇은 고정
       this.profile = MW.Profile ? MW.Profile.load() : { nick: 'MINJAE', photo: null, face: 0, color: 'lime' };
@@ -421,6 +452,9 @@
       // 영토 도트 매트릭스
       this.drawDots(ox, oy, cp, c0, r0, c1, r1, now);
 
+      // 친구 영토 (멀티): 그들 프로필 색 할프톤 도트 — 오프라인이면 자동 무동작
+      this.drawFriends(ox, oy, cp, c0, r0, c1, r1, now);
+
       // 사망 연출 상태
       const dying = this.game.state === 'dying';
       const deathElapsed = dying ? now - this.game.deathAt : 0;
@@ -595,6 +629,73 @@
         ctx.fillStyle = P.face;
         ctx.fillText(hint, 0, hy);
       }
+      ctx.restore();
+    }
+
+    // ---------- 친구 영토 (멀티) ----------
+    // remoteOwner(idx→memberId) + members(memberId→{color,...})를 읽어
+    // 친구 셀을 그들 프로필 색 할프톤 도트로. 오프라인/솔로면 remoteOwner가 비어 자동 무동작.
+    updateFriends() {
+      const g = this.game;
+      const rev = g.remoteRev || 0;
+      if (rev === this.friendRev) return; // 변경 없음 (밀도는 그대로, 온기·숨쉬기는 프레임에서)
+      this.friendRev = rev;
+      this.friendBase = computeFriendField(g.remoteOwner, this.board.size);
+    }
+
+    drawFriends(ox, oy, cp, c0, r0, c1, r1, now) {
+      const g = this.game;
+      if (!g.remoteOwner) return;
+      this.updateFriends();
+      const list = this.friendBase;
+      if (!list.length) return;
+
+      const ctx = this.ctx;
+      const P = this.palette;
+      const s = this.board.size;
+      const half = cp / 2;
+      const candy = P.candy || {};
+      const members = g.members || {};
+      const warm = g.remoteWarm || null;
+      const decay = MW.CONFIG.WARM_DECAY_DAYS * 86400000;
+      const wallNow = Date.now();
+
+      // 색별로 묶어 fill 전환 최소화
+      const byColor = new Map();
+      for (let i = 0; i < list.length; i++) {
+        const it = list[i];
+        const c = it.idx % s;
+        const r = (it.idx - c) / s;
+        if (c < c0 || c > c1 || r < r0 || r > r1) continue;
+        const mem = members[it.m];
+        const color = (mem && candy[mem.color]) || candy.sky || P.ent[2].h;
+        let rad = it.base * cp;
+        if (warm && warm[it.idx]) {
+          let w = 1 - (wallNow - warm[it.idx]) / decay;
+          if (w < 0) w = 0; else if (w > 1) w = 1;
+          rad *= 0.35 + 0.65 * w; // 식은 친구 땅은 작게 (온기 시각화 동일)
+        }
+        rad *= 1 + 0.04 * Math.sin(now / 900 + (c + r) * 0.7); // 숨쉬기
+        if (rad <= 0.3) continue;
+        let arr = byColor.get(color);
+        if (!arr) {
+          arr = [];
+          byColor.set(color, arr);
+        }
+        arr.push(ox + c * cp + half, oy + r * cp + half, rad);
+      }
+
+      ctx.save();
+      ctx.globalAlpha = 0.92; // 내 영토(불투명 도트)와 톤 맞춤
+      byColor.forEach((arr, color) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let k = 0; k < arr.length; k += 3) {
+          ctx.moveTo(arr[k] + arr[k + 2], arr[k + 1]);
+          ctx.arc(arr[k], arr[k + 1], arr[k + 2], 0, Math.PI * 2);
+        }
+        ctx.fill();
+      });
       ctx.restore();
     }
 
@@ -1204,4 +1305,5 @@
 
   window.MW = window.MW || {};
   MW.Renderer = Renderer;
+  MW.computeFriendField = computeFriendField;
 })();

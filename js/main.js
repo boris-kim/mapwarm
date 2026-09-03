@@ -896,6 +896,8 @@
       } catch (e) { /* noop */ }
       this.net.setGroup(code);
       this.remoteOwner = {};
+      this.remoteWarm = {};
+      this.remoteRev++;
       this.updateGroupStatus();
       if (this.netOn()) {
         this.syncJoin();
@@ -1025,7 +1027,9 @@
     // ---------- 친구 멀티 (비동기 우편함) ----------
     initNet() {
       this.net = new MW.Net(C);
-      this.remoteOwner = {}; // idx → memberId (친구 소유 추적, 렌더 후속용)
+      this.remoteOwner = {}; // idx → memberId (친구 소유 — 렌더러가 읽음)
+      this.remoteWarm = {};  // idx → warmth_ts (친구 셀 온기 — 도트 크기)
+      this.remoteRev = 0;    // remoteOwner 변경 카운터 (렌더러 친구 캐시 무효화)
       this.members = {};     // memberId → {nick,color,face}
       this.sessionDelta = new Set(); // 이번 산책에 내가 바꾼 셀 idx (업로드 델타)
 
@@ -1064,6 +1068,8 @@
     async syncJoin() {
       if (!this.netOn()) return;
       this.remoteOwner = {};
+      this.remoteWarm = {};
+      this.remoteRev++;
       await this.syncMember();
       await this.refreshMembers();
       await this.syncPull(true);
@@ -1095,10 +1101,18 @@
       const { rows } = await this.net.pullCells();
       if (!rows.length) return;
       const res = MW.Net.mergeRemoteCells(this.board, this.remoteOwner, rows, this.memberId);
+      // 친구 셀 온기 갱신 (도트 크기용) + 렌더러 친구 캐시 무효화
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.owner && row.owner !== this.memberId) this.remoteWarm[row.idx] = row.warmth_ts;
+        else delete this.remoteWarm[row.idx];
+      }
+      this.remoteRev++;
       this.renderer.syncBaseline();
       this.updateOccupancy();
+      // 새로 들어온 친구 프로필(색·닉·얼굴) 캐시 — 색으로 그리려면 필요
+      if (Object.keys(this.remoteOwner).length) await this.refreshMembers();
       if (res.lost > 0) {
-        await this.refreshMembers();
         this.reportFriendLoss(res.lost, res.lostByMember, initial);
       }
     }
