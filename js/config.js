@@ -5,9 +5,9 @@
   window.MW = window.MW || {};
 
   MW.CONFIG = {
-    GRID: 80,               // 게임판: 80×80칸 (약 400m×400m)
+    GRID: 48,               // 게임판: 48×48칸 (약 240m×240m — 5분 산책 = 동네 한 블록)
     TICK_MS: 125,           // 로직 틱: 초당 8틱 (렌더링과 분리)
-    CELL_PX: 22,            // 화면상 1칸 크기(px)
+    CELL_PX: 36,            // 화면상 1칸 크기(px) — 줌 인: 한 걸음이 화면에서 크게 움직임
     START_RADIUS: 1,        // 시작 영토 3×3 (반경 1)
     BOT_RESPAWN_TICKS: 24,  // 봇 리스폰 대기 (약 3초)
     GPS_CELL_METERS: 5,     // 현실 1칸 = 5m
@@ -37,7 +37,7 @@
     ERODE_MAX_DAYS: 7,      // 잠식 경과 계산 상한 (7일 이상 방치 = 7일치)
     GPS_START_RADIUS: 3,    // 온보딩 첫 GPS 세션 시작 영토 7×7 (반경 3) — 첫 보상 공백 완화
     WARM_ALERT_AVG: 0.7,    // 내 영토 평균 온기가 이 밑이면 "식음 경고" (D1~D4 능동 훅)
-    ANCHOR_REUSE_M: 250,    // 저장된 동네 anchor에서 이 거리 안이면 같은 보드 복원
+    ANCHOR_REUSE_M: 120,    // 저장된 동네 anchor에서 이 거리 안이면 같은 보드 복원 (보드 240m에 맞춤)
     WORLD_KEY: 'mapwarm-world-v1', // localStorage 영속 키
     WORLD_SAVE_TICKS: 80,   // 자동 저장 주기 (80틱 = 10초)
     DECAY_CHECK_TICKS: 240, // 플레이 중 냉각 중립화 점검 주기 (30초)
