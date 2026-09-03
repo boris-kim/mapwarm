@@ -61,14 +61,13 @@
       this._projCount = -1;
       this._projPopT0 = -1e9;
 
-      // 이름 라벨 (닉네임: localStorage → 없으면 MINJAE)
-      let nick = 'MINJAE';
-      try {
-        nick = (localStorage.getItem('mapwarm-nick') || 'MINJAE')
-          .toUpperCase()
-          .slice(0, 10);
-      } catch (e) { /* noop */ }
-      this.names = { 1: nick, 2: 'PIKO', 3: 'MOMO' };
+      // 프로필: 플레이어(id 1)는 프로필을 따르고, 봇은 고정
+      this.profile = MW.Profile ? MW.Profile.load() : { nick: 'MINJAE', photo: null, face: 0, color: 'lime' };
+      this.names = { 1: this.profile.nick, 2: 'PIKO', 3: 'MOMO' };
+      this._photoImg = null;   // 프로필 사진 디코드 캐시 (매 프레임 디코드 금지)
+      this._photoSrc = null;   // 캐시된 사진의 data URL (변경 감지)
+      this._photoReady = false;
+      this.loadProfilePhoto();
 
       // 바닥 텍스처 (고정 시드, 셀 좌표 캐시)
       this.texture = this.buildTexture();
@@ -108,6 +107,15 @@
         danger: tok('--danger-color', '#ff3e9a'),
         pop: null,
         ent: { 1: entTok('p1'), 2: entTok('bot1'), 3: entTok('bot2') },
+        // 프로필 색 (캔디 팔레트 id → 실제 색)
+        candy: {
+          lime: tok('--candy-lime', '#b7e819'),
+          pink: tok('--candy-pink', '#ff3e9a'),
+          orange: tok('--candy-orange', '#ff8a00'),
+          sky: tok('--candy-sky', '#3aa0ff'),
+          purple: tok('--candy-purple', '#a855f7'),
+          cyan: tok('--candy-cyan', '#22d3ee'),
+        },
       };
       this.palette.pop = tok('--pop-color', this.palette.ent[1].h);
 
@@ -115,6 +123,41 @@
       this.isDark =
         t === 'dark' ||
         (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+
+    // 프로필 변경 반영 (설정 저장 시 main.js가 호출)
+    setProfile(profile) {
+      this.profile = profile;
+      this.names[1] = profile.nick;
+      this.loadProfilePhoto();
+    }
+
+    // 프로필 사진 1회 디코드 캐시 (data URL 바뀔 때만 재로드)
+    loadProfilePhoto() {
+      const src = this.profile && this.profile.photo;
+      if (src === this._photoSrc) return;
+      this._photoSrc = src;
+      this._photoReady = false;
+      this._photoImg = null;
+      if (!src || typeof Image === 'undefined') return;
+      const img = new Image();
+      img.onload = () => {
+        this._photoImg = img;
+        this._photoReady = true;
+        if (this.onProfilePhoto) this.onProfilePhoto(); // HUD 썸네일 등 재그리기
+      };
+      img.onerror = () => {
+        this._photoImg = null; // 실패 → 프리셋 얼굴 폴백
+        this._photoReady = false;
+        if (this.onProfilePhoto) this.onProfilePhoto();
+      };
+      img.src = src;
+    }
+
+    // 플레이어 프레임 색 = 프로필 캔디 색 (없으면 라임 토큰)
+    playerFrameColor() {
+      const c = this.profile && this.profile.color;
+      return (this.palette.candy && this.palette.candy[c]) || this.palette.ent[1].frame;
     }
 
     resize() {
@@ -884,7 +927,7 @@
         ctx.translate(-cx, -cy);
       }
 
-      const frame = P.ent[ent.id].frame;
+      const frame = ent.id === 1 ? this.playerFrameColor() : P.ent[ent.id].frame;
 
       // 말풍선 꼬리
       ctx.fillStyle = frame;
@@ -916,16 +959,16 @@
       ctx.fill();
       ctx.restore();
 
-      // 흰 링 + 얼굴
-      ctx.fillStyle = P.white;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 0.7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = P.face;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 0.58, 0, Math.PI * 2);
-      ctx.fill();
-      this.drawFace(ent.id, cx, cy, R);
+      // 흰 링 + (사진 또는 프리셋 얼굴)
+      let style;
+      let photoImg = null;
+      if (ent.id === 1) {
+        style = (MW.Profile && MW.Profile.FACES[this.profile.face]) || 'smile';
+        if (this._photoReady && this._photoImg) photoImg = this._photoImg;
+      } else {
+        style = ent.id === 3 ? 'round' : 'flat';
+      }
+      this.avatarInner(ctx, cx, cy, R, style, photoImg);
 
       // 이름 라벨 필 (토큰: 라이트 차콜+라임 / 다크 라임+차콜)
       this.drawLabel(this.names[ent.id] || '?', cx, cy + R + 6, S);
@@ -933,13 +976,41 @@
       ctx.restore();
     }
 
-    drawFace(id, cx, cy, R) {
-      const ctx = this.ctx;
+    // 흰 링 + 내부: 사진(원형 클립) 또는 프리셋 얼굴 (ctx 명시 — 마커/썸네일/미리보기 공용)
+    avatarInner(ctx, cx, cy, R, style, photoImg) {
+      const P = this.palette;
+      ctx.fillStyle = P.white;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (photoImg) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R * 0.6, 0, Math.PI * 2);
+        ctx.clip();
+        const d = R * 1.2;
+        ctx.drawImage(photoImg, cx - R * 0.6, cy - R * 0.6, d, d);
+        ctx.restore();
+        return;
+      }
+
+      ctx.fillStyle = P.face;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.58, 0, Math.PI * 2);
+      ctx.fill();
+      this.drawFaceStyle(ctx, style || 'smile', cx, cy, R);
+    }
+
+    // 프리셋 얼굴 스타일 (§6.5 픽셀 얼굴): smile / flat / round / wink
+    drawFaceStyle(ctx, style, cx, cy, R) {
       const P = this.palette;
       const f = R / 17;
       ctx.fillStyle = P.white;
+      ctx.strokeStyle = P.white;
+      ctx.lineCap = 'round';
 
-      if (id === 3) {
+      if (style === 'round') {
         ctx.beginPath();
         ctx.arc(cx - 4.5 * f, cy - 2.5 * f, 2 * f, 0, Math.PI * 2);
         ctx.arc(cx + 4.5 * f, cy - 2.5 * f, 2 * f, 0, Math.PI * 2);
@@ -951,19 +1022,64 @@
       }
 
       const ew = 3.5 * f;
-      ctx.fillRect(cx - 6 * f, cy - 4.5 * f, ew, ew);
+      // 왼쪽 눈
+      if (style === 'wink') {
+        // 윙크: 왼쪽은 가로 선
+        ctx.lineWidth = 1.8 * f;
+        ctx.beginPath();
+        ctx.moveTo(cx - 6.2 * f, cy - 2.8 * f);
+        ctx.lineTo(cx - 2.7 * f, cy - 2.8 * f);
+        ctx.stroke();
+      } else {
+        ctx.fillRect(cx - 6 * f, cy - 4.5 * f, ew, ew);
+      }
+      // 오른쪽 눈 (사각)
       ctx.fillRect(cx + 2.5 * f, cy - 4.5 * f, ew, ew);
 
-      if (id === 1) {
-        ctx.strokeStyle = P.white;
+      if (style === 'flat') {
+        ctx.fillRect(cx - 3.5 * f, cy + 3 * f, 7 * f, 1.8 * f);
+      } else {
+        // smile / wink: 웃는 입
         ctx.lineWidth = 1.8 * f;
-        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.arc(cx, cy + 1.5 * f, 4.5 * f, Math.PI * 0.18, Math.PI * 0.82);
         ctx.stroke();
-      } else {
-        ctx.fillRect(cx - 3.5 * f, cy + 3 * f, 7 * f, 1.8 * f);
       }
+    }
+
+    // ---------- 프로필 아바타를 임의 캔버스에 1개 그리기 (HUD 썸네일 · 설정 미리보기) ----------
+    // profile 생략 시 현재 커밋된 프로필. photoImg 는 미리보기용 미커밋 사진(Image).
+    renderAvatarTo(canvasEl, cssSize, profile, photoImg) {
+      if (!canvasEl || !this.palette) return;
+      profile = profile || this.profile;
+      const ctx = canvasEl.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      canvasEl.width = cssSize * dpr;
+      canvasEl.height = cssSize * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssSize, cssSize);
+
+      const cx = cssSize / 2;
+      const cy = cssSize / 2;
+      const R = cssSize / 2 - Math.max(1, cssSize * 0.03);
+
+      // 프레임 링 (프로필 캔디 색)
+      const cand = this.palette.candy;
+      ctx.fillStyle = (cand && cand[profile.color]) || this.palette.ent[1].frame;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI * 2);
+      ctx.fill();
+
+      const style = (MW.Profile && MW.Profile.FACES[profile.face]) || 'smile';
+      // photoImg 미지정 시: 커밋된 프로필의 사진 캐시 사용 (같은 프로필일 때)
+      let img = photoImg || null;
+      if (!img && profile === this.profile && this._photoReady) img = this._photoImg;
+      this.avatarInner(ctx, cx, cy, R * 1.02, style, img);
+    }
+
+    // HUD 썸네일 (커밋된 프로필)
+    renderThumb(canvasEl) {
+      this.renderAvatarTo(canvasEl, 30);
     }
 
     drawLabel(name, cx, cy, S) {

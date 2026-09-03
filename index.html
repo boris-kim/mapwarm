@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>MapWarm — 걸어서 땅따먹기</title>
-  <!-- ⚠ 캐시 버스팅 버전: 현재 v=023 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
-       (아래 css 2개 + body 하단 js 13개, 전부 동일한 값이어야 한다) -->
-  <link rel="stylesheet" href="css/design-system.css?v=023">
-  <link rel="stylesheet" href="css/main.css?v=023">
+  <!-- ⚠ 캐시 버스팅 버전: 현재 v=024 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
+       (아래 css 2개 + body 하단 js 14개, 전부 동일한 값이어야 한다) -->
+  <link rel="stylesheet" href="css/design-system.css?v=024">
+  <link rel="stylesheet" href="css/main.css?v=024">
 </head>
 <body>
   <main class="game-area" id="game-area">
@@ -113,21 +113,74 @@
           <path d="M3 3l18 18"/>
         </svg>
       </button>
+      <button type="button" id="profile-btn" class="profile-btn" aria-label="프로필 설정">
+        <canvas id="profile-thumb" class="profile-thumb" width="30" height="30" aria-hidden="true"></canvas>
+      </button>
     </div>
   </header>
 
-  <script src="js/config.js?v=023"></script>
-  <script src="js/theme.js?v=023"></script>
-  <script src="js/round.js?v=023"></script>
-  <script src="js/warmth.js?v=023"></script>
-  <script src="js/grid.js?v=023"></script>
-  <script src="js/entities.js?v=023"></script>
-  <script src="js/input.js?v=023"></script>
-  <script src="js/gps.js?v=023"></script>
-  <script src="js/audio.js?v=023"></script>
-  <script src="js/map.js?v=023"></script>
-  <script src="js/render.js?v=023"></script>
-  <script src="js/card.js?v=023"></script>
-  <script src="js/main.js?v=023"></script>
+  <!-- 프로필 설정 시트 -->
+  <div id="profile-overlay" class="overlay hidden">
+    <div class="overlay-card profile-card">
+      <span class="rivet rivet-tl" aria-hidden="true"></span>
+      <span class="rivet rivet-tr" aria-hidden="true"></span>
+      <span class="rivet rivet-bl" aria-hidden="true"></span>
+      <span class="rivet rivet-br" aria-hidden="true"></span>
+      <h2 id="profile-title">프로필</h2>
+
+      <div class="profile-preview">
+        <canvas id="profile-preview-canvas" width="96" height="96" aria-hidden="true"></canvas>
+      </div>
+
+      <label class="pf-field">
+        <span class="pf-label">이름</span>
+        <input type="text" id="pf-nick" class="pf-input" maxlength="10"
+               placeholder="이름" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="pf-field">
+        <span class="pf-label">사진</span>
+        <div class="pf-photo-row">
+          <label class="pf-btn-file">
+            사진 선택
+            <input type="file" id="pf-photo" accept="image/*" hidden>
+          </label>
+          <button type="button" id="pf-photo-clear" class="pf-btn-clear">사진 지우기</button>
+        </div>
+      </div>
+
+      <div class="pf-field">
+        <span class="pf-label">기본 얼굴 <small>(사진 없을 때)</small></span>
+        <div class="pf-faces" id="pf-faces" role="radiogroup" aria-label="기본 얼굴"></div>
+      </div>
+
+      <div class="pf-field">
+        <span class="pf-label">색</span>
+        <div class="pf-colors" id="pf-colors" role="radiogroup" aria-label="프로필 색"></div>
+      </div>
+
+      <p class="pf-privacy">사진은 이 브라우저에만 저장돼요. 서버로 전송되지 않아요.</p>
+
+      <div class="result-actions">
+        <button type="button" id="pf-save" class="btn-primary">저장</button>
+        <button type="button" id="pf-close" class="btn-secondary">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/config.js?v=024"></script>
+  <script src="js/theme.js?v=024"></script>
+  <script src="js/profile.js?v=024"></script>
+  <script src="js/round.js?v=024"></script>
+  <script src="js/warmth.js?v=024"></script>
+  <script src="js/grid.js?v=024"></script>
+  <script src="js/entities.js?v=024"></script>
+  <script src="js/input.js?v=024"></script>
+  <script src="js/gps.js?v=024"></script>
+  <script src="js/audio.js?v=024"></script>
+  <script src="js/map.js?v=024"></script>
+  <script src="js/render.js?v=024"></script>
+  <script src="js/card.js?v=024"></script>
+  <script src="js/main.js?v=024"></script>
 </body>
 </html>

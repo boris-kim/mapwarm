@@ -23,6 +23,8 @@
   --candy-pink: oklch(0.678 0.237 357);   /* #FF3E9A 봇1 */
   --candy-orange: oklch(0.747 0.18 57);   /* #FF8A00 봇2 */
   --candy-sky: oklch(0.74 0.12 235);      /* 보조: 포커스 링 */
+  --candy-purple: oklch(0.62 0.2 305);    /* 프로필 색 옵션 */
+  --candy-cyan: oklch(0.78 0.14 195);     /* 프로필 색 옵션 */
 
   /* ---------- 지면 & 텍스트 (라이트: 웜 그레이시 오프화이트) ---------- */
   --bg-primary: oklch(0.938 0.005 118);   /* #EAEBE7 */
@@ -144,6 +146,8 @@
   --candy-pink: oklch(0.678 0.237 357);   /* 핑크/오렌지 동일 */
   --candy-orange: oklch(0.747 0.18 57);
   --candy-sky: oklch(0.8 0.11 235);
+  --candy-purple: oklch(0.68 0.2 305);
+  --candy-cyan: oklch(0.82 0.14 195);
 
   --bg-primary: oklch(0.183 0.004 286);   /* #121214 */
   --bg-secondary: oklch(0.231 0.008 275); /* #1C1D21 */
@@ -222,6 +226,8 @@
     --candy-pink: oklch(0.678 0.237 357);
     --candy-orange: oklch(0.747 0.18 57);
     --candy-sky: oklch(0.8 0.11 235);
+    --candy-purple: oklch(0.68 0.2 305);
+    --candy-cyan: oklch(0.82 0.14 195);
 
     --bg-primary: oklch(0.183 0.004 286);
     --bg-secondary: oklch(0.231 0.008 275);

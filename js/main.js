@@ -147,6 +147,12 @@
       this.gps = new MW.GpsController(this);
       this.renderer = new MW.Renderer(document.getElementById('game'), this.board, this);
 
+      // 프로필 (로컬 완결). 렌더러와 동기화하고 HUD 썸네일 그림.
+      this.profile = MW.Profile.load();
+      this.renderer.onProfilePhoto = () => this.refreshThumb();
+      this.renderer.setProfile(this.profile);
+      this.setupProfileUI();
+
       // 소리 + 햅틱: 첫 사용자 제스처에서 AudioContext 활성화 (autoplay 정책)
       this.audio = new MW.AudioFx();
       const unlock = () => this.audio.unlock();
@@ -730,6 +736,186 @@
       this.$bgmBtn.disabled = this.audio.muted;
       this.$bgmBtn.setAttribute('aria-pressed', String(!off));
       this.$bgmBtn.setAttribute('aria-label', this.audio.bgmOn ? '음악 끄기' : '음악 켜기');
+    }
+
+    // ---------- 프로필 설정 시트 ----------
+    setupProfileUI() {
+      this.$profileBtn = document.getElementById('profile-btn');
+      this.$profileThumb = document.getElementById('profile-thumb');
+      this.$profileOverlay = document.getElementById('profile-overlay');
+      this.$pfPreview = document.getElementById('profile-preview-canvas');
+      this.$pfNick = document.getElementById('pf-nick');
+      this.$pfPhoto = document.getElementById('pf-photo');
+      this.$pfPhotoClear = document.getElementById('pf-photo-clear');
+      this.$pfFaces = document.getElementById('pf-faces');
+      this.$pfColors = document.getElementById('pf-colors');
+      this.$pfSave = document.getElementById('pf-save');
+      this.$pfClose = document.getElementById('pf-close');
+      if (!this.$profileBtn) return;
+
+      this._draft = null;
+      this._draftPhotoImg = null;
+
+      // 얼굴 프리셋 옵션 (작은 캔버스로 미리 그림)
+      MW.Profile.FACES.forEach((style, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'pf-face';
+        b.dataset.face = String(i);
+        b.setAttribute('role', 'radio');
+        const cv = document.createElement('canvas');
+        cv.width = 40;
+        cv.height = 40;
+        b.appendChild(cv);
+        b.addEventListener('click', () => {
+          this._draft.face = i;
+          this.syncFaceColorActive();
+          this.renderProfilePreview();
+        });
+        this.$pfFaces.appendChild(b);
+        b._canvas = cv;
+      });
+
+      // 색 옵션
+      MW.Profile.COLORS.forEach((cid) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'pf-color';
+        b.dataset.color = cid;
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-label', cid);
+        const cand = this.renderer.palette.candy;
+        b.style.background = (cand && cand[cid]) || 'gray';
+        b.addEventListener('click', () => {
+          this._draft.color = cid;
+          this.syncFaceColorActive();
+          this.renderProfilePreview();
+        });
+        this.$pfColors.appendChild(b);
+      });
+
+      this.$profileBtn.addEventListener('click', () => this.openProfileSheet());
+      this.$pfClose.addEventListener('click', () => this.$profileOverlay.classList.add('hidden'));
+      this.$pfSave.addEventListener('click', () => this.saveProfileSheet());
+
+      this.$pfNick.addEventListener('input', () => {
+        this._draft.nick = this.$pfNick.value.slice(0, MW.Profile.NICK_MAX);
+        this.renderProfilePreview();
+      });
+
+      this.$pfPhoto.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        MW.Profile.cropResize(file, 256, (dataUrl) => {
+          if (!dataUrl) {
+            this.toast('사진을 불러올 수 없어요.');
+            return;
+          }
+          this._draft.photo = dataUrl;
+          this.loadDraftPhoto(dataUrl);
+        });
+        this.$pfPhoto.value = ''; // 같은 파일 재선택 허용
+      });
+
+      this.$pfPhotoClear.addEventListener('click', () => {
+        this._draft.photo = null;
+        this._draftPhotoImg = null;
+        this.renderProfilePreview();
+      });
+
+      // 테마 바뀌면 색 스와치·썸네일 색도 갱신
+      document.addEventListener('mw:themechange', () => {
+        this.refreshThumb();
+        this.$pfColors && this.$pfColors.querySelectorAll('.pf-color').forEach((b) => {
+          const cand = this.renderer.palette.candy;
+          b.style.background = (cand && cand[b.dataset.color]) || 'gray';
+        });
+      });
+
+      this.refreshThumb();
+    }
+
+    refreshThumb() {
+      if (this.$profileThumb) this.renderer.renderThumb(this.$profileThumb);
+    }
+
+    openProfileSheet() {
+      // 커밋 프로필의 복사본을 드래프트로
+      this._draft = MW.Profile.sanitize(this.profile);
+      this._draftPhotoImg = null;
+      this.$pfNick.value = this._draft.nick;
+      if (this._draft.photo) this.loadDraftPhoto(this._draft.photo);
+      else this.renderProfilePreview();
+      this.syncFaceColorActive();
+      this.$profileOverlay.classList.remove('hidden');
+    }
+
+    loadDraftPhoto(dataUrl) {
+      if (typeof Image === 'undefined') {
+        this.renderProfilePreview();
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        this._draftPhotoImg = img;
+        this.renderProfilePreview();
+      };
+      img.onerror = () => {
+        this._draftPhotoImg = null;
+        this._draft.photo = null;
+        this.toast('사진을 불러올 수 없어요.');
+        this.renderProfilePreview();
+      };
+      img.src = dataUrl;
+    }
+
+    syncFaceColorActive() {
+      if (!this._draft) return;
+      // 사진이 있으면 얼굴 선택은 비활성 느낌(선택 표시만 유지)
+      this.$pfFaces.querySelectorAll('.pf-face').forEach((b) => {
+        const on = Number(b.dataset.face) === this._draft.face;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+        // 프리셋 얼굴 썸네일 그리기 (드래프트 색 프레임)
+        this.renderer.renderAvatarTo(
+          b._canvas, 40,
+          { nick: '', photo: null, face: Number(b.dataset.face), color: this._draft.color },
+          null
+        );
+      });
+      this.$pfColors.querySelectorAll('.pf-color').forEach((b) => {
+        const on = b.dataset.color === this._draft.color;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', String(on));
+      });
+    }
+
+    renderProfilePreview() {
+      if (!this._draft || !this.$pfPreview) return;
+      this.renderer.renderAvatarTo(this.$pfPreview, 96, this._draft, this._draftPhotoImg);
+      // 얼굴 프리셋 썸네일도 색 따라가게 다시
+      this.$pfFaces.querySelectorAll('.pf-face').forEach((b) => {
+        this.renderer.renderAvatarTo(
+          b._canvas, 40,
+          { nick: '', photo: null, face: Number(b.dataset.face), color: this._draft.color },
+          null
+        );
+      });
+    }
+
+    saveProfileSheet() {
+      const nick = (this.$pfNick.value || '').trim();
+      if (!nick) {
+        this.toast('이름을 입력해 주세요.');
+        this.$pfNick.focus();
+        return;
+      }
+      this._draft.nick = nick;
+      this.profile = MW.Profile.save(this._draft); // 정규화 + 저장
+      this.renderer.setProfile(this.profile);
+      this.refreshThumb();
+      this.$profileOverlay.classList.add('hidden');
+      this.toast('프로필을 저장했어요.');
     }
 
     // ---------- HUD ----------
