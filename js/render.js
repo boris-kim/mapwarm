@@ -66,6 +66,11 @@
       this.board = board;
       this.game = game;
       this.cam = { x: board.size / 2, y: board.size / 2 };
+
+      // 카메라 줌 (뷰 전용): 실제 셀 크기 = CELL_PX * viewScale. 로직 좌표 불변.
+      this.viewScale = 1;       // 현재 배율 (1 = 기본 CELL_PX)
+      this._minScale = 0.2;     // 보드 전체가 화면에 들어오는 배율 (draw에서 매 프레임 계산)
+      this._zoomHeldAt = -1e9;  // 마지막 사용자 줌 시각 → 이후 ZOOM_RETURN_MS 지나면 복귀
       this.palette = null;
       this.isDark = false;
 
@@ -210,6 +215,29 @@
     // ---------- 외부 트리거 ----------
     zoomPulse() {
       this.zoomT0 = performance.now();
+    }
+
+    // 사용자 줌 (input.js가 핀치/휠/버튼에서 호출). factor>1 = 당김, <1 = 조망.
+    userZoom(factor) {
+      const CFG = MW.CONFIG;
+      this.viewScale = Math.min(
+        CFG.ZOOM_MAX,
+        Math.max(this._minScale, this.viewScale * factor)
+      );
+      this._zoomHeldAt = performance.now(); // 자동 복귀 타이머 리셋
+    }
+
+    // 조작 중 타이머만 리셋 (배율 변화 없이 — 연속 제스처 유지용)
+    zoomHold() {
+      this._zoomHeldAt = performance.now();
+    }
+
+    _reducedMotion() {
+      return (
+        typeof window !== 'undefined' &&
+        window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      );
     }
 
     // 봇 처치: 꼬리 스냅샷 + 끊긴 지점 + 파편 (die() 호출 전에 불러야 한다)
@@ -395,12 +423,30 @@
       const P = this.palette;
       const board = this.board;
       const s = board.size;
-      const cp = MW.CONFIG.CELL_PX;
+      const CFG = MW.CONFIG;
       const w = this.canvas.clientWidth;
       const h = this.canvas.clientHeight;
       if (!w || !h || !P) return;
 
       const now = performance.now();
+
+      // --- 줌: 최소 배율(보드 전체 조망) 계산 + 자동 복귀 ease ---
+      this._minScale = Math.min(
+        CFG.ZOOM_MAX,
+        Math.min(w, h) / (s * CFG.CELL_PX)
+      );
+      if (now - this._zoomHeldAt > CFG.ZOOM_RETURN_MS && this.viewScale !== 1) {
+        if (this._reducedMotion()) {
+          this.viewScale = 1; // 모션 최소화: 즉시 스냅
+        } else {
+          const k = 1 - Math.exp(-6 * dt);
+          this.viewScale += (1 - this.viewScale) * k;
+          if (Math.abs(this.viewScale - 1) < 0.003) this.viewScale = 1;
+        }
+      }
+      this.viewScale = Math.min(CFG.ZOOM_MAX, Math.max(this._minScale, this.viewScale));
+      const cp = CFG.CELL_PX * this.viewScale; // 뷰 전용 셀 크기 (로직 좌표 불변)
+
       this.updateDots(now);
 
       // 카메라

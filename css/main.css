@@ -290,6 +290,26 @@ body {
   pointer-events: none;
 }
 
+/* --- 줌 컨트롤 (+/−): 붙인 사각 hairline 쌍 (에디토리얼) --- */
+.zoom-controls {
+  display: inline-flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.zoom-btn {
+  border-radius: 0;
+}
+
+.zoom-btn:first-child {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.zoom-btn:last-child {
+  border-top: none; /* 사이 괘선 1px 공유 */
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
 /* --- 도감 버튼 배지 + 콜렉션 북 --- */
 .book-btn {
   position: relative;
