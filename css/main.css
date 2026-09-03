@@ -418,6 +418,30 @@ body {
   box-shadow: var(--sticker-shadow), 0 0 0 2px var(--focus-ring);
 }
 
+.pf-group-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.pf-group-row .pf-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  letter-spacing: 0.14em;
+}
+
+.pf-group-row .pf-btn-file,
+.pf-group-row .pf-btn-clear {
+  flex: 0 0 auto;
+  padding: 9px 14px;
+}
+
+.pf-group-status {
+  font-size: var(--text-xs);
+  color: var(--panel-fg-muted);
+  margin: var(--space-1) 0 0;
+}
+
 .pf-privacy {
   font-size: var(--text-xs);
   color: var(--panel-fg-muted);

@@ -49,6 +49,16 @@
     // --- v0.3 예상 점령 게이지 ---
     GAUGE_TICKS: 2,         // 예상 면적 재계산 주기 (2틱마다 = 초당 4회)
     GAUGE_URGE_CELLS: 60,   // 예상 점령이 이 칸수 이상이면 "지금 닫아!" 강조
+
+    // --- v0.3 친구 멀티 = 비동기 우편함 (Supabase REST) ---
+    // ⚠ 아래 URL/키가 둘 다 채워지고 그룹 코드가 있어야 멀티가 켜진다.
+    //    하나라도 비면 net은 완전 무동작 = 100% 혼자 플레이 (에러/네트워크 0).
+    //    사용자가 나중에: ① supabase-schema.sql 실행 ② 아래 URL/키 입력.
+    SUPABASE_URL: '',        // 예: 'https://xxxx.supabase.co'
+    SUPABASE_ANON_KEY: '',   // Supabase anon public 키
+    GROUP_KEY: '',           // 기본 그룹 코드 (보통은 UI/링크로 설정 → localStorage)
+    SYNC_INTERVAL_MS: 60000, // 수신 폴링 주기 (60초)
+    UPLOAD_MAX_CELLS: 500,   // 한 번에 업로드 상한 (초과 시 reject — 순간이동 치팅 방어)
   };
 
   // 엔티티 ID (보드 owner 배열 값과 동일)

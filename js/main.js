@@ -151,6 +151,10 @@
       this.profile = MW.Profile.load();
       this.renderer.onProfilePhoto = () => this.refreshThumb();
       this.renderer.setProfile(this.profile);
+
+      // 친구 멀티 (비동기 우편함). 키/그룹 없으면 완전 무동작 = 혼자 플레이.
+      this.initNet();
+
       this.setupProfileUI();
 
       // 소리 + 햅틱: 첫 사용자 제스처에서 AudioContext 활성화 (autoplay 정책)
@@ -357,9 +361,22 @@
       } else if (res === 'moved' && gps) {
         if (!this.player.hasTrail()) {
           // 내 땅 위를 걷는 중 → 주변 재가열 (출근길 = 방어)
+          const rad = C.REHEAT_RADIUS;
           this.walkReheated += this.warmth.reheatAround(
-            this.board, this.player.c, this.player.r, C.REHEAT_RADIUS, Date.now()
+            this.board, this.player.c, this.player.r, rad, Date.now()
           );
+          // 재가열한 내 셀을 업로드 델타에 기록 (같은 5×5 박스)
+          if (this.netOn()) {
+            for (let dr = -rad; dr <= rad; dr++) {
+              for (let dc = -rad; dc <= rad; dc++) {
+                const cc = this.player.c + dc;
+                const rr = this.player.r + dr;
+                if (this.board.inBounds(cc, rr) && this.board.ownerAt(cc, rr) === MW.ID.PLAYER) {
+                  this.markDelta(this.board.idx(cc, rr));
+                }
+              }
+            }
+          }
         } else if (this.world && !this.world.onboarded && !this._hintShown) {
           this._hintShown = true;
           this.toast('한 바퀴 돌아 시작점으로! ↻');
@@ -435,6 +452,11 @@
           if (cooled) this.updateOccupancy();
         }
         if (this.tickCount % C.WORLD_SAVE_TICKS === 0) this.saveWorld();
+        // 친구 델타 주기적 수신 (오프라인이면 무동작)
+        if (this.netOn()) {
+          const pullTicks = Math.max(1, Math.round(C.SYNC_INTERVAL_MS / C.TICK_MS));
+          if (this.tickCount % pullTicks === 0) this.syncPull(false);
+        }
       } else {
         this.updateTimeChip();
         // 데모 라운드 판정: 40% 즉시 승리 > 시간 종료(점유율 순위)
@@ -494,16 +516,21 @@
         this.weekly.maxCells = this.playerCells;
         this.weekly.maxOwner = Array.from(this.board.owner); // 주간 최대 영토 스냅샷
       }
-      // 새로 점령된 셀 온기 1.0
+      // 새로 점령된 셀 온기 1.0 + 업로드 델타 기록
       const now = Date.now();
       const o = this.board.owner;
       for (let i = 0; i < o.length; i++) {
-        if (o[i] === MW.ID.PLAYER && this._preOwner[i] !== MW.ID.PLAYER) this.warmth.heat(i, now);
+        if (o[i] === MW.ID.PLAYER && this._preOwner[i] !== MW.ID.PLAYER) {
+          this.warmth.heat(i, now);
+          this.markDelta(i);
+        }
       }
       this.toast('이번 산책: +' + g + '칸 · 재가열 ' + this.walkReheated + '칸');
       this.walkReheated = 0;
       if (this.world && !this.world.onboarded) this.world.onboarded = true;
       this.saveWorld();
+      // 산책 종료 = 델타 업로드 (오프라인이면 무동작)
+      this.syncUpload();
     }
 
     // 점령 직후: 영토를 전부 빼앗긴 상대 처리 (GPS 플레이어는 무사망)
@@ -823,6 +850,29 @@
         this.renderProfilePreview();
       });
 
+      // --- 그룹 참여 UI ---
+      this.$pfGroup = document.getElementById('pf-group');
+      this.$pfGroupJoin = document.getElementById('pf-group-join');
+      this.$pfGroupMake = document.getElementById('pf-group-make');
+      this.$pfGroupShare = document.getElementById('pf-group-share');
+      this.$pfGroupStatus = document.getElementById('pf-group-status');
+      if (this.$pfGroup) {
+        this.$pfGroupJoin.addEventListener('click', () => {
+          const code = (this.$pfGroup.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+          if (code.length !== 6) {
+            this.toast('그룹 코드는 6자리예요.');
+            return;
+          }
+          this.joinGroup(code);
+        });
+        this.$pfGroupMake.addEventListener('click', () => {
+          const code = MW.Net.makeGroupCode();
+          this.$pfGroup.value = code;
+          this.joinGroup(code);
+        });
+        this.$pfGroupShare.addEventListener('click', () => this.shareGroupLink());
+      }
+
       // 테마 바뀌면 색 스와치·썸네일 색도 갱신
       document.addEventListener('mw:themechange', () => {
         this.refreshThumb();
@@ -839,6 +889,56 @@
       if (this.$profileThumb) this.renderer.renderThumb(this.$profileThumb);
     }
 
+    // ---------- 그룹 참여 ----------
+    joinGroup(code) {
+      try {
+        localStorage.setItem('mapwarm-group', code);
+      } catch (e) { /* noop */ }
+      this.net.setGroup(code);
+      this.remoteOwner = {};
+      this.updateGroupStatus();
+      if (this.netOn()) {
+        this.syncJoin();
+        this.toast('그룹 ' + code + ' 에 참여했어요.');
+      } else {
+        this.toast('그룹 코드 저장됨. 서버 키가 설정되면 동기화돼요.');
+      }
+    }
+
+    shareGroupLink() {
+      const code = this.net.group;
+      if (!code) {
+        this.toast('먼저 그룹을 만들거나 참여하세요.');
+        return;
+      }
+      let base = location.origin + location.pathname;
+      const link = base + '?group=' + code;
+      const done = () => this.toast('공유 링크를 복사했어요.');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link).then(done, () => this.toast(link));
+        } else {
+          this.toast(link);
+        }
+      } catch (e) {
+        this.toast(link);
+      }
+    }
+
+    updateGroupStatus() {
+      if (!this.$pfGroupStatus) return;
+      const code = this.net.group;
+      let msg;
+      if (!this.net.url || !this.net.key) {
+        msg = code
+          ? '그룹 ' + code + ' · 서버 키 미설정 → 혼자 플레이 (오프라인)'
+          : '서버 키 미설정 → 혼자 플레이 (오프라인)';
+      } else {
+        msg = code ? '그룹 ' + code + ' · 동기화 켜짐' : '그룹 없음 — 만들거나 참여하세요';
+      }
+      this.$pfGroupStatus.textContent = msg;
+    }
+
     openProfileSheet() {
       // 커밋 프로필의 복사본을 드래프트로
       this._draft = MW.Profile.sanitize(this.profile);
@@ -847,6 +947,8 @@
       if (this._draft.photo) this.loadDraftPhoto(this._draft.photo);
       else this.renderProfilePreview();
       this.syncFaceColorActive();
+      if (this.$pfGroup) this.$pfGroup.value = this.net.group || '';
+      this.updateGroupStatus();
       this.$profileOverlay.classList.remove('hidden');
     }
 
@@ -916,6 +1018,148 @@
       this.refreshThumb();
       this.$profileOverlay.classList.add('hidden');
       this.toast('프로필을 저장했어요.');
+      // 프로필이 바뀌면 그룹에도 반영 (멤버 upsert)
+      if (this.net && this.net.enabled()) this.syncMember();
+    }
+
+    // ---------- 친구 멀티 (비동기 우편함) ----------
+    initNet() {
+      this.net = new MW.Net(C);
+      this.remoteOwner = {}; // idx → memberId (친구 소유 추적, 렌더 후속용)
+      this.members = {};     // memberId → {nick,color,face}
+      this.sessionDelta = new Set(); // 이번 산책에 내가 바꾼 셀 idx (업로드 델타)
+
+      // 안정적인 내 멤버 id (닉은 겹치므로 별도)
+      try {
+        this.memberId = localStorage.getItem('mapwarm-member') || '';
+        if (!this.memberId) {
+          this.memberId = 'm-' + Math.random().toString(36).slice(2, 10);
+          localStorage.setItem('mapwarm-member', this.memberId);
+        }
+      } catch (e) {
+        this.memberId = 'm-local';
+      }
+
+      // 그룹 코드: ?group= 링크 > localStorage > config 기본값
+      let group = '';
+      try {
+        const params = new URLSearchParams(location.search);
+        const linkGroup = (params.get('group') || '').toUpperCase().slice(0, 6);
+        if (linkGroup) {
+          group = linkGroup;
+          localStorage.setItem('mapwarm-group', group);
+        } else {
+          group = localStorage.getItem('mapwarm-group') || '';
+        }
+      } catch (e) { /* noop */ }
+      group = group || C.GROUP_KEY;
+      this.net.setGroup(group);
+    }
+
+    netOn() {
+      return this.net && this.net.enabled();
+    }
+
+    // 그룹 참여/변경 시: 멤버 등록 + 친구 목록 + 첫 수신
+    async syncJoin() {
+      if (!this.netOn()) return;
+      this.remoteOwner = {};
+      await this.syncMember();
+      await this.refreshMembers();
+      await this.syncPull(true);
+    }
+
+    async syncMember() {
+      if (!this.netOn()) return;
+      // 사진은 절대 보내지 않는다 (색·닉·얼굴만)
+      await this.net.upsertMember({
+        member_id: this.memberId,
+        nick: this.profile.nick,
+        color: this.profile.color,
+        face: this.profile.face,
+      });
+    }
+
+    async refreshMembers() {
+      if (!this.netOn()) return;
+      const rows = await this.net.fetchMembers();
+      for (let i = 0; i < rows.length; i++) {
+        const m = rows[i];
+        this.members[m.member_id] = { nick: m.nick, color: m.color, face: m.face };
+      }
+    }
+
+    // 수신 → 로컬 머지 → 뺏김 계산 → (초기 아니면) 리포트/토스트
+    async syncPull(initial) {
+      if (!this.netOn()) return;
+      const { rows } = await this.net.pullCells();
+      if (!rows.length) return;
+      const res = MW.Net.mergeRemoteCells(this.board, this.remoteOwner, rows, this.memberId);
+      this.renderer.syncBaseline();
+      this.updateOccupancy();
+      if (res.lost > 0) {
+        await this.refreshMembers();
+        this.reportFriendLoss(res.lost, res.lostByMember, initial);
+      }
+    }
+
+    reportFriendLoss(lost, byMember, initial) {
+      // 가장 많이 가져간 친구 이름
+      let topId = null;
+      let topN = 0;
+      for (const id in byMember) {
+        if (byMember[id] > topN) {
+          topN = byMember[id];
+          topId = id;
+        }
+      }
+      const nick = (topId && this.members[topId] && this.members[topId].nick) || '친구';
+      const msg = '밤새 ' + nick + '가 ' + lost + '칸을 가져갔어요.';
+      if (initial && this.state === 'playing') {
+        // 앱 열 때: 기존 리포트 패널 재사용
+        this.showPanel({
+          mode: 'report',
+          title: '우리 동네 소식',
+          win: false,
+          reason: msg,
+          card: false,
+          btn: '되찾으러 가기',
+        });
+        if (this.audio) this.audio.report();
+      } else {
+        this.toast(msg);
+      }
+    }
+
+    // 산책 종료 시: 이번 세션 델타만 업로드 (내 소유로 남은 셀만)
+    async syncUpload() {
+      if (!this.netOn() || !this.sessionDelta.size) {
+        this.sessionDelta.clear();
+        return;
+      }
+      const rows = [];
+      const now = Date.now();
+      this.sessionDelta.forEach((idx) => {
+        if (this.board.owner[idx] === MW.ID.PLAYER) {
+          rows.push({
+            idx,
+            owner: this.memberId,
+            color: this.profile.color,
+            warmth_ts: this.warmth.lastWarm[idx] || now,
+          });
+        }
+      });
+      this.sessionDelta.clear();
+      if (rows.length > C.UPLOAD_MAX_CELLS) {
+        this.toast('한 번에 너무 많이 먹었어요 — 이번 업로드는 건너뜁니다.');
+        return;
+      }
+      await this.net.uploadCells(rows);
+    }
+
+    // 이번 세션에 바뀐 셀 기록 (업로드 델타용)
+    markDelta(idx) {
+      if (this.mode === 'gps') this.sessionDelta.add(idx);
     }
 
     // ---------- HUD ----------
@@ -1097,6 +1341,8 @@
       const first = this.overlayQueue.shift();
       if (first) first();
       this.saveWorld();
+      this.sessionDelta.clear();
+      this.syncJoin(); // 친구 델타 수신 (오프라인이면 무동작)
     }
 
     newWorld() {
@@ -1114,6 +1360,8 @@
       this.renderer.syncBaseline();
       this.toast('새 동네! 한 바퀴 돌아 땅을 감싸자');
       this.saveWorld();
+      this.sessionDelta.clear();
+      this.syncJoin(); // 친구 델타 수신 (오프라인이면 무동작)
     }
 
     placePlayer(c, r) {

@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>MapWarm — 걸어서 땅따먹기</title>
-  <!-- ⚠ 캐시 버스팅 버전: 현재 v=024 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
-       (아래 css 2개 + body 하단 js 14개, 전부 동일한 값이어야 한다) -->
-  <link rel="stylesheet" href="css/design-system.css?v=024">
-  <link rel="stylesheet" href="css/main.css?v=024">
+  <!-- ⚠ 캐시 버스팅 버전: 현재 v=025 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
+       (아래 css 2개 + body 하단 js 15개, 전부 동일한 값이어야 한다) -->
+  <link rel="stylesheet" href="css/design-system.css?v=025">
+  <link rel="stylesheet" href="css/main.css?v=025">
 </head>
 <body>
   <main class="game-area" id="game-area">
@@ -159,7 +159,22 @@
         <div class="pf-colors" id="pf-colors" role="radiogroup" aria-label="프로필 색"></div>
       </div>
 
-      <p class="pf-privacy">사진은 이 브라우저에만 저장돼요. 서버로 전송되지 않아요.</p>
+      <div class="pf-field">
+        <span class="pf-label">그룹 <small>(친구와 같은 동네)</small></span>
+        <div class="pf-group-row">
+          <input type="text" id="pf-group" class="pf-input" maxlength="6"
+                 placeholder="코드 6자리" autocomplete="off" spellcheck="false"
+                 style="text-transform:uppercase">
+          <button type="button" id="pf-group-join" class="pf-btn-clear">참여</button>
+        </div>
+        <div class="pf-group-row">
+          <button type="button" id="pf-group-make" class="pf-btn-file">새 그룹 만들기</button>
+          <button type="button" id="pf-group-share" class="pf-btn-clear">링크 복사</button>
+        </div>
+        <p class="pf-group-status" id="pf-group-status"></p>
+      </div>
+
+      <p class="pf-privacy">사진은 이 브라우저에만 저장돼요. 색·이름·얼굴만 친구와 공유돼요.</p>
 
       <div class="result-actions">
         <button type="button" id="pf-save" class="btn-primary">저장</button>
@@ -168,19 +183,20 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=024"></script>
-  <script src="js/theme.js?v=024"></script>
-  <script src="js/profile.js?v=024"></script>
-  <script src="js/round.js?v=024"></script>
-  <script src="js/warmth.js?v=024"></script>
-  <script src="js/grid.js?v=024"></script>
-  <script src="js/entities.js?v=024"></script>
-  <script src="js/input.js?v=024"></script>
-  <script src="js/gps.js?v=024"></script>
-  <script src="js/audio.js?v=024"></script>
-  <script src="js/map.js?v=024"></script>
-  <script src="js/render.js?v=024"></script>
-  <script src="js/card.js?v=024"></script>
-  <script src="js/main.js?v=024"></script>
+  <script src="js/config.js?v=025"></script>
+  <script src="js/theme.js?v=025"></script>
+  <script src="js/profile.js?v=025"></script>
+  <script src="js/net.js?v=025"></script>
+  <script src="js/round.js?v=025"></script>
+  <script src="js/warmth.js?v=025"></script>
+  <script src="js/grid.js?v=025"></script>
+  <script src="js/entities.js?v=025"></script>
+  <script src="js/input.js?v=025"></script>
+  <script src="js/gps.js?v=025"></script>
+  <script src="js/audio.js?v=025"></script>
+  <script src="js/map.js?v=025"></script>
+  <script src="js/render.js?v=025"></script>
+  <script src="js/card.js?v=025"></script>
+  <script src="js/main.js?v=025"></script>
 </body>
 </html>
