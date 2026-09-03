@@ -20,7 +20,17 @@
         this.muted = localStorage.getItem('mapwarm-mute') === '1';
       } catch (e) { /* 저장 불가 환경 무시 */ }
 
+      // BGM 전용 토글 (전체 음소거와 별개, 기본 켜짐)
+      this.bgmOn = true;
+      try {
+        const v = localStorage.getItem('mapwarm-bgm');
+        if (v !== null) this.bgmOn = v === '1';
+      } catch (e) { /* noop */ }
+
       this._lastDanger = 0; // 위험음 스로틀
+      this._footFlip = false; // 좌/우발 번갈아 (자박-자박)
+      this._noiseBuf = null;  // 발소리용 화이트노이즈 버퍼 (재사용)
+      this._bgm = null;       // BGM 노드 그래프 (지속)
     }
 
     // 제스처에서 호출 — AudioContext 생성/resume + iOS 무음버퍼 프라이밍
@@ -46,6 +56,8 @@
           src.start(0);
           this._primed = true;
         }
+        // 첫 제스처 이후 BGM 시작 (토글 켜져 있고 전체 음소거 아니면)
+        this.syncBgm();
       } catch (e) {
         this.ctx = null; // 실패해도 게임은 계속
       }
@@ -56,11 +68,37 @@
       try {
         localStorage.setItem('mapwarm-mute', this.muted ? '1' : '0');
       } catch (e) { /* noop */ }
+      this.syncBgm(); // 전체 음소거 시 BGM도 함께 멈춤/재개
     }
 
     toggleMute() {
       this.setMuted(!this.muted);
       return this.muted;
+    }
+
+    setBgm(on) {
+      this.bgmOn = !!on;
+      try {
+        localStorage.setItem('mapwarm-bgm', this.bgmOn ? '1' : '0');
+      } catch (e) { /* noop */ }
+      this.syncBgm();
+    }
+
+    toggleBgm() {
+      this.setBgm(!this.bgmOn);
+      return this.bgmOn;
+    }
+
+    // 탭 가시성 변화 시 호출 — 백그라운드에선 컨텍스트 suspend, 복귀 시 resume
+    setActive(active) {
+      if (!this.ctx) return;
+      try {
+        if (active) {
+          if (this.ctx.state === 'suspended') this.ctx.resume();
+        } else if (this.ctx.state === 'running') {
+          this.ctx.suspend();
+        }
+      } catch (e) { /* noop */ }
     }
 
     // 짧은 톤 하나 (type=파형, f0→f1 글라이드, dur초, delay초, peak게인)
@@ -133,6 +171,140 @@
       this.tone('sine', 660, 660, 0.12, 0, 0.8);
       this.tone('sine', 880, 880, 0.16, 0.13, 0.8);
       this.vibrate([15, 60, 15]);
+    }
+
+    // ---------- 발소리 (자박자박): 로우패스 화이트노이즈 짧은 버스트 ----------
+    footstep() {
+      if (!this.ready || this.muted || !this.ctx) return;
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+
+      // 화이트노이즈 버퍼는 한 번만 만들어 재사용 (저사양)
+      if (!this._noiseBuf) {
+        const len = Math.floor(this.ctx.sampleRate * 0.12);
+        const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+        this._noiseBuf = buf;
+      }
+
+      const t0 = this.ctx.currentTime;
+      const dur = 0.055; // 40~70ms 사이
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._noiseBuf;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      // 좌/우발 번갈아: 필터 컷오프·게인을 살짝 다르게
+      const left = this._footFlip;
+      this._footFlip = !this._footFlip;
+      lp.frequency.value = left ? 900 : 1250;
+      lp.Q.value = 0.7;
+      const g = this.ctx.createGain();
+      const peak = 0.28; // 이벤트음보다 확실히 작게 (배경)
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(peak, t0 + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+      src.connect(lp);
+      lp.connect(g);
+      g.connect(this.master);
+      src.start(t0);
+      src.stop(t0 + dur + 0.02);
+      src.onended = () => {
+        try {
+          src.disconnect();
+          lp.disconnect();
+          g.disconnect();
+        } catch (e) { /* noop */ }
+      };
+    }
+
+    // ---------- BGM: 잔잔한 앰비언트 패드 루프 (오실레이터 소수 지속) ----------
+    bgmActive() {
+      return this.ready && !this.muted && this.bgmOn;
+    }
+
+    // 상태 동기화 — 조건 충족 시 그래프 유지, 아니면 정지
+    syncBgm() {
+      if (this.bgmActive()) this.startBgm();
+      else this.stopBgm();
+    }
+
+    startBgm() {
+      if (!this.ctx || this._bgm) return;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+
+      // 전용 게인 (마스터보다 훨씬 낮게 — 절대 시끄럽지 않게)
+      const bus = ctx.createGain();
+      bus.gain.value = 0.16;
+      bus.connect(this.master);
+
+      // 부드럽게 페이드 인
+      const bgmGain = ctx.createGain();
+      bgmGain.gain.setValueAtTime(0.0001, now);
+      bgmGain.gain.exponentialRampToValueAtTime(1, now + 2.5);
+      bgmGain.connect(bus);
+
+      // 은은한 로우패스로 패드를 따뜻하게
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      lp.connect(bgmGain);
+
+      // 패드 코드: A마이너 계열 3음 지속음 (삼각/사인, 캔디 무드에 밝게)
+      const freqs = [220, 277.18, 329.63]; // A3 · C#4 · E4
+      const oscs = [];
+      const lfos = [];
+      for (let i = 0; i < freqs.length; i++) {
+        const osc = ctx.createOscillator();
+        osc.type = i === 0 ? 'triangle' : 'sine';
+        osc.frequency.value = freqs[i];
+        const vg = ctx.createGain();
+        vg.gain.value = 0.33;
+        // 아주 느린 트레몰로(약한 리듬감): 음마다 다른 위상/속도
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.08 + i * 0.05;
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.value = 0.14;
+        lfo.connect(lfoGain);
+        lfoGain.connect(vg.gain);
+        osc.connect(vg);
+        vg.connect(lp);
+        osc.start(now);
+        lfo.start(now);
+        oscs.push(osc);
+        lfos.push(lfo);
+      }
+
+      this._bgm = { bus, bgmGain, lp, oscs, lfos };
+    }
+
+    stopBgm() {
+      if (!this._bgm || !this.ctx) {
+        this._bgm = null;
+        return;
+      }
+      const b = this._bgm;
+      this._bgm = null;
+      const now = this.ctx.currentTime;
+      try {
+        b.bgmGain.gain.cancelScheduledValues(now);
+        b.bgmGain.gain.setValueAtTime(Math.max(0.0001, b.bgmGain.gain.value), now);
+        b.bgmGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4); // 페이드 아웃
+      } catch (e) { /* noop */ }
+      const stopAt = now + 0.45;
+      for (let i = 0; i < b.oscs.length; i++) {
+        try { b.oscs[i].stop(stopAt); } catch (e) { /* noop */ }
+        try { b.lfos[i].stop(stopAt); } catch (e) { /* noop */ }
+      }
+      // 정리
+      const nodes = b.oscs.concat(b.lfos, [b.lp, b.bgmGain, b.bus]);
+      setTimeout(() => {
+        for (let i = 0; i < nodes.length; i++) {
+          try { nodes[i].disconnect(); } catch (e) { /* noop */ }
+        }
+      }, 600);
     }
   }
 

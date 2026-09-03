@@ -94,8 +94,25 @@
           this.audio.unlock();
           this.audio.toggleMute();
           this.updateMuteUI();
+          this.updateBgmUI(); // 전체 음소거는 BGM도 끄므로 아이콘 동기화
         });
       }
+
+      // BGM 전용 토글 (음악만 끄고 효과음은 유지)
+      this.$bgmBtn = document.getElementById('bgm-btn');
+      if (this.$bgmBtn) {
+        this.updateBgmUI();
+        this.$bgmBtn.addEventListener('click', () => {
+          this.audio.unlock();
+          this.audio.toggleBgm();
+          this.updateBgmUI();
+        });
+      }
+
+      // 탭 백그라운드/복귀 시 오디오 컨텍스트 suspend/resume (배터리·iOS 무음)
+      document.addEventListener('visibilitychange', () => {
+        this.audio.setActive(!document.hidden);
+      });
 
       // 모드 토글
       document.querySelectorAll('.mode-option').forEach((btn) => {
@@ -237,7 +254,16 @@
       }
 
       if (gps) this._preOwner.set(this.board.owner);
+      const fromC = this.player.c;
+      const fromR = this.player.r;
       const res = this.player.step(dir);
+
+      // 발소리: 플레이어가 실제로 새 셀로 진입한 순간 (봇 이동엔 소리 없음)
+      if ((this.player.c !== fromC || this.player.r !== fromR) && this.audio) {
+        const every = gps ? C.STEP_GPS_EVERY : C.STEP_DEMO_EVERY;
+        this._stepCount = (this._stepCount || 0) + 1;
+        if (this._stepCount % every === 0) this.audio.footstep();
+      }
 
       if (res === 'self-trail') {
         if (gps) {
@@ -614,6 +640,16 @@
       this.$muteBtn.classList.toggle('muted', m);
       this.$muteBtn.setAttribute('aria-pressed', String(m));
       this.$muteBtn.setAttribute('aria-label', m ? '소리 켜기' : '소리 끄기');
+    }
+
+    updateBgmUI() {
+      if (!this.$bgmBtn) return;
+      // 전체 음소거면 BGM 버튼도 꺼진 것으로 보이게
+      const off = !this.audio.bgmOn || this.audio.muted;
+      this.$bgmBtn.classList.toggle('muted', off);
+      this.$bgmBtn.disabled = this.audio.muted;
+      this.$bgmBtn.setAttribute('aria-pressed', String(!off));
+      this.$bgmBtn.setAttribute('aria-label', this.audio.bgmOn ? '음악 끄기' : '음악 켜기');
     }
 
     // ---------- HUD ----------

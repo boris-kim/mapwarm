@@ -41,6 +41,10 @@
     WORLD_KEY: 'mapwarm-world-v1', // localStorage 영속 키
     WORLD_SAVE_TICKS: 80,   // 자동 저장 주기 (80틱 = 10초)
     DECAY_CHECK_TICKS: 240, // 플레이 중 냉각 중립화 점검 주기 (30초)
+
+    // --- v0.2 오디오 확장 (발소리 · BGM) ---
+    STEP_DEMO_EVERY: 2,     // 데모: 발소리를 이 칸수마다 1발 (초당 8칸이라 촘촘함 완화)
+    STEP_GPS_EVERY: 1,      // GPS: 매 걸음 발소리
   };
 
   // 엔티티 ID (보드 owner 배열 값과 동일)

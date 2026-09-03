@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>MapWarm — 걸어서 땅따먹기</title>
-  <!-- ⚠ 캐시 버스팅 버전: 현재 v=019 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
+  <!-- ⚠ 캐시 버스팅 버전: 현재 v=022 — 릴리스마다 이 파일의 모든 ?v= 숫자를 함께 올릴 것
        (아래 css 2개 + body 하단 js 13개, 전부 동일한 값이어야 한다) -->
-  <link rel="stylesheet" href="css/design-system.css?v=021">
-  <link rel="stylesheet" href="css/main.css?v=021">
+  <link rel="stylesheet" href="css/design-system.css?v=022">
+  <link rel="stylesheet" href="css/main.css?v=022">
 </head>
 <body>
   <main class="game-area" id="game-area">
@@ -101,21 +101,33 @@
           <path d="M17 9.5l4 5M21 9.5l-4 5"/>
         </svg>
       </button>
+      <button type="button" id="bgm-btn" class="mute-btn bgm-btn" aria-pressed="true" aria-label="음악 끄기">
+        <svg class="ico-bgm-on" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18V6l10-2v12"/>
+          <circle cx="6" cy="18" r="3"/>
+          <circle cx="16" cy="16" r="3"/>
+        </svg>
+        <svg class="ico-bgm-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18V6l10-2v6"/>
+          <circle cx="6" cy="18" r="3"/>
+          <path d="M3 3l18 18"/>
+        </svg>
+      </button>
     </div>
   </header>
 
-  <script src="js/config.js?v=021"></script>
-  <script src="js/theme.js?v=021"></script>
-  <script src="js/round.js?v=021"></script>
-  <script src="js/warmth.js?v=021"></script>
-  <script src="js/grid.js?v=021"></script>
-  <script src="js/entities.js?v=021"></script>
-  <script src="js/input.js?v=021"></script>
-  <script src="js/gps.js?v=021"></script>
-  <script src="js/audio.js?v=021"></script>
-  <script src="js/map.js?v=021"></script>
-  <script src="js/render.js?v=021"></script>
-  <script src="js/card.js?v=021"></script>
-  <script src="js/main.js?v=021"></script>
+  <script src="js/config.js?v=022"></script>
+  <script src="js/theme.js?v=022"></script>
+  <script src="js/round.js?v=022"></script>
+  <script src="js/warmth.js?v=022"></script>
+  <script src="js/grid.js?v=022"></script>
+  <script src="js/entities.js?v=022"></script>
+  <script src="js/input.js?v=022"></script>
+  <script src="js/gps.js?v=022"></script>
+  <script src="js/audio.js?v=022"></script>
+  <script src="js/map.js?v=022"></script>
+  <script src="js/render.js?v=022"></script>
+  <script src="js/card.js?v=022"></script>
+  <script src="js/main.js?v=022"></script>
 </body>
 </html>

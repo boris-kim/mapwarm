@@ -218,6 +218,25 @@ body {
   display: block;
 }
 
+/* BGM 전용 토글: 같은 스티커 언어, 아이콘만 음표 2종 */
+.bgm-btn .ico-bgm-off {
+  display: none;
+}
+
+.bgm-btn.muted .ico-bgm-on {
+  display: none;
+}
+
+.bgm-btn.muted .ico-bgm-off {
+  display: block;
+}
+
+/* 전체 음소거 시 BGM 버튼은 비활성 (흐리게) */
+.bgm-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .mute-btn:active {
   transform: scale(0.92);
 }
